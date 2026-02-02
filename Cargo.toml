@@ -15,6 +15,7 @@ repository = "https://github.com/nervosnetwork/ckb-vm"
 default = []
 # Require asm feature, generates an error if asm cannot be enabled.
 asm = []
+rand = ["asm", "dep:rand"]
 # Detect if requirements are met, and enable asm feature when we can.
 detect-asm = []
 enable-chaos-mode-by-default = ["ckb-vm-definitions/enable-chaos-mode-by-default"]
@@ -31,7 +32,8 @@ scroll = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 ckb-vm-definitions = { path = "definitions", version = "=0.24.14" }
 derive_more = "0.99.2"
-rand = "0.7.3"
+rand = { version = "0.7.3", optional = true }
+
 
 [build-dependencies]
 cc = "1.0"

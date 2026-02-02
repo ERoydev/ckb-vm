@@ -11,6 +11,7 @@ use ckb_vm_definitions::{
     ISA_MOP, MEMORY_FRAMES, MEMORY_FRAMESIZE, MEMORY_FRAME_PAGE_SHIFTS,
     RISCV_GENERAL_REGISTER_NUMBER, RISCV_MAX_MEMORY, RISCV_PAGE_SHIFTS,
 };
+#[cfg(feature = "rand")]
 use rand::{prelude::RngCore, SeedableRng};
 use std::alloc::{alloc, Layout};
 use std::os::raw::c_uchar;
@@ -82,13 +83,17 @@ impl CoreMachine for Box<AsmCoreMachine> {
 pub extern "C" fn inited_memory(frame_index: u64, machine: &mut AsmCoreMachine) {
     let addr_from = (frame_index << MEMORY_FRAME_SHIFTS) as usize;
     let addr_to = ((frame_index + 1) << MEMORY_FRAME_SHIFTS) as usize;
-    if machine.chaos_mode != 0 {
-        let mut gen = rand::rngs::StdRng::seed_from_u64(machine.chaos_seed.into());
-        gen.fill_bytes(&mut machine.memory[addr_from..addr_to]);
-        machine.chaos_seed = gen.next_u32();
-    } else {
-        memset(&mut machine.memory[addr_from..addr_to], 0);
+    #[cfg(feature = "rand")]
+    {
+        if machine.chaos_mode != 0 {
+            let mut gen = rand::rngs::StdRng::seed_from_u64(machine.chaos_seed.into());
+            gen.fill_bytes(&mut machine.memory[addr_from..addr_to]);
+            machine.chaos_seed = gen.next_u32();
+            return;
+        }
     }
+    // If rand feature is not enabled, or not in chaos mode, zero the memory
+    memset(&mut machine.memory[addr_from..addr_to], 0);
 }
 
 fn check_memory(machine: &mut AsmCoreMachine, page: u64) {
