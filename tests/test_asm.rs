@@ -531,3 +531,18 @@ pub fn test_nop_loop() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 }
+
+#[test]
+pub fn test_big_binary() {
+    let buffer = fs::read("tests/programs/big_binary").unwrap().into();
+    let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new_with_memory(
+        ISA_IMC,
+        VERSION2,
+        u64::MAX,
+        1024 * 512,
+    );
+    let core = DefaultMachineBuilder::new(asm_core).build();
+    let mut machine = AsmMachine::new(core);
+    let result = machine.load_program(&buffer, [Ok("simple".into())].into_iter());
+    assert_eq!(result, Err(Error::MemOutOfBound));
+}

@@ -39,7 +39,9 @@ impl<Mac: SupportMachine> Syscalls<Mac> for DebugSyscall {
 
 #[cfg(has_asm)]
 fn main_asm(code: Bytes, args: Vec<Bytes>) -> Result<(), Box<dyn std::error::Error>> {
-    let asm_core = ckb_vm::machine::asm::AsmCoreMachine::new(
+    use ckb_vm::DefaultMachineRunner;
+
+    let asm_core = <Box<ckb_vm::machine::asm::AsmCoreMachine> as SupportMachine>::new(
         ckb_vm::ISA_IMC | ckb_vm::ISA_B | ckb_vm::ISA_MOP | ckb_vm::ISA_A,
         ckb_vm::machine::VERSION2,
         u64::MAX,
@@ -49,7 +51,7 @@ fn main_asm(code: Bytes, args: Vec<Bytes>) -> Result<(), Box<dyn std::error::Err
         .syscall(Box::new(DebugSyscall {}))
         .build();
     let mut machine = ckb_vm::machine::asm::AsmMachine::new(core);
-    machine.load_program(&code, &args)?;
+    machine.load_program(&code, args.into_iter().map(Ok))?;
     let exit = machine.run();
     let cycles = machine.machine.cycles();
     println!(
@@ -71,7 +73,7 @@ fn main_int(code: Bytes, args: Vec<Bytes>) -> Result<(), Box<dyn std::error::Err
     let machine_builder = ckb_vm::DefaultMachineBuilder::new(core_machine)
         .instruction_cycle_func(Box::new(estimate_cycles));
     let mut machine = machine_builder.syscall(Box::new(DebugSyscall {})).build();
-    machine.load_program(&code, &args)?;
+    machine.load_program(&code, args.into_iter().map(Ok))?;
     let exit = machine.run();
     let cycles = machine.cycles();
     println!(
