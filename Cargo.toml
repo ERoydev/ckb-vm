@@ -1,11 +1,11 @@
 [package]
 name = "ckb-vm"
 description = "CKB's Virtual machine"
-version = "0.24.14"
+version = "0.24.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
-edition = "2021"
-rust-version = "1.81.0"
+edition = "2024"
+rust-version = "1.92.0"
 build = "build.rs"
 exclude = ["/benches", "/tests"]
 homepage = "https://github.com/nervosnetwork/ckb-vm"
@@ -15,8 +15,6 @@ repository = "https://github.com/nervosnetwork/ckb-vm"
 default = []
 # Require asm feature, generates an error if asm cannot be enabled.
 asm = []
-rand = ["asm", "dep:rand"]
-dev = ["proptest"] # TODO: workaround for now, because i dont want zkvm to pull dev-dependencies when i build with script
 # Detect if requirements are met, and enable asm feature when we can.
 detect-asm = []
 enable-chaos-mode-by-default = ["ckb-vm-definitions/enable-chaos-mode-by-default"]
@@ -31,30 +29,21 @@ goblin_v023 = { package = "goblin", version = "=0.2.3" }
 goblin_v040 = { package = "goblin", version = "=0.4.0" }
 scroll = "0.10"
 serde = { version = "1.0", features = ["derive"] }
-ckb-vm-definitions = { path = "definitions", version = "=0.24.14" }
-derive_more = "0.99.2"
-rand = { version = "0.7.3", optional = true }
-proptest = { version = "1.5.0", optional = true } # THAT WAS a dev-deps, but for a workaround i put it here so i can make it optional to run my experiment
+ckb-vm-definitions = { path = "definitions", version = "=0.24.0" }
+derive_more = { version = "1", features = ["full"] }
 
 [build-dependencies]
 cc = "1.0"
 
 [dev-dependencies]
+argparse = "0.2"
 criterion = "0.5.1"
-lazy_static = "1.4.0"
-
-[target.'cfg(not(target_os = "windows"))'.dev-dependencies]
-jemallocator = "0.5.0"
-jemalloc-ctl = "0.5.0"
+proptest = "1.5.0"
+buddy-alloc = "0.6.0"
 
 [[bench]]
 name = "bits_benchmark"
 path = "benches/bits_benchmark.rs"
-harness = false
-
-[[bench]]
-name = "vm_benchmark"
-path = "benches/vm_benchmark.rs"
 harness = false
 
 [lints.rust]

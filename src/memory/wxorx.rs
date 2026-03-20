@@ -1,7 +1,7 @@
-use super::super::{Error, Register, RISCV_MAX_MEMORY, RISCV_PAGESIZE};
+use super::super::{Error, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
 use super::{
-    check_permission, get_page_indices, round_page_down, round_page_up, Memory, FLAG_EXECUTABLE,
-    FLAG_FREEZED, FLAG_WRITABLE,
+    FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, Memory, check_no_overflow, check_permission,
+    get_page_indices, round_page_down, round_page_up,
 };
 
 use bytes::Bytes;
@@ -19,13 +19,9 @@ impl<M: Memory> WXorXMemory<M> {
 impl<M: Memory> Memory for WXorXMemory<M> {
     type REG = M::REG;
 
-    fn new() -> Self {
-        Self::new_with_memory(RISCV_MAX_MEMORY)
-    }
-
-    fn new_with_memory(memory_size: usize) -> Self {
+    fn new(memory_size: usize) -> Self {
         Self {
-            inner: M::new_with_memory(memory_size),
+            inner: M::new(memory_size),
         }
     }
 
@@ -37,21 +33,32 @@ impl<M: Memory> Memory for WXorXMemory<M> {
         source: Option<Bytes>,
         offset_from_addr: u64,
     ) -> Result<(), Error> {
-        if round_page_down(addr) != addr || round_page_up(size) != size {
-            return Err(Error::MemPageUnalignedAccess);
+        if round_page_down(addr) != addr {
+            return Err(Error::MemPageUnalignedAccess(addr));
+        }
+        if round_page_up(size) != size {
+            return Err(Error::MemPageUnalignedAccess(addr.wrapping_add(size)));
         }
 
-        if addr > self.memory_size() as u64
-            || size > self.memory_size() as u64
-            || addr + size > self.memory_size() as u64
-            || offset_from_addr > size
-        {
-            return Err(Error::MemOutOfBound);
+        if addr > self.memory_size() as u64 {
+            return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+        }
+        if size > self.memory_size() as u64 || addr + size > self.memory_size() as u64 {
+            return Err(Error::MemOutOfBound(
+                addr.wrapping_add(size),
+                OutOfBoundKind::Memory,
+            ));
+        }
+        if offset_from_addr > size {
+            return Err(Error::MemOutOfBound(
+                offset_from_addr,
+                OutOfBoundKind::ExternalData,
+            ));
         }
         for page_addr in (addr..addr + size).step_by(RISCV_PAGESIZE) {
             let page = page_addr / RISCV_PAGESIZE as u64;
             if self.fetch_flag(page)? & FLAG_FREEZED != 0 {
-                return Err(Error::MemWriteOnFreezedPage);
+                return Err(Error::MemWriteOnFreezedPage(page));
             }
             self.set_flag(page, flags)?;
         }
@@ -76,13 +83,15 @@ impl<M: Memory> Memory for WXorXMemory<M> {
     }
 
     fn execute_load16(&mut self, addr: u64) -> Result<u16, Error> {
-        let page_indices = get_page_indices(addr, 2)?;
+        check_no_overflow(addr, 2, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr, 2);
         check_permission(self, &page_indices, FLAG_EXECUTABLE)?;
         self.inner.execute_load16(addr)
     }
 
     fn execute_load32(&mut self, addr: u64) -> Result<u32, Error> {
-        let page_indices = get_page_indices(addr, 4)?;
+        check_no_overflow(addr, 4, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr, 4);
         check_permission(self, &page_indices, FLAG_EXECUTABLE)?;
         self.inner.execute_load32(addr)
     }
@@ -104,25 +113,29 @@ impl<M: Memory> Memory for WXorXMemory<M> {
     }
 
     fn store8(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let page_indices = get_page_indices(addr.to_u64(), 1)?;
+        check_no_overflow(addr.to_u64(), 1, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr.to_u64(), 1);
         check_permission(self, &page_indices, FLAG_WRITABLE)?;
         self.inner.store8(addr, value)
     }
 
     fn store16(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let page_indices = get_page_indices(addr.to_u64(), 2)?;
+        check_no_overflow(addr.to_u64(), 2, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr.to_u64(), 2);
         check_permission(self, &page_indices, FLAG_WRITABLE)?;
         self.inner.store16(addr, value)
     }
 
     fn store32(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let page_indices = get_page_indices(addr.to_u64(), 4)?;
+        check_no_overflow(addr.to_u64(), 4, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr.to_u64(), 4);
         check_permission(self, &page_indices, FLAG_WRITABLE)?;
         self.inner.store32(addr, value)
     }
 
     fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let page_indices = get_page_indices(addr.to_u64(), 8)?;
+        check_no_overflow(addr.to_u64(), 8, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr.to_u64(), 8);
         check_permission(self, &page_indices, FLAG_WRITABLE)?;
         self.inner.store64(addr, value)
     }
@@ -131,7 +144,8 @@ impl<M: Memory> Memory for WXorXMemory<M> {
         if value.is_empty() {
             return Ok(());
         }
-        let page_indices = get_page_indices(addr, value.len() as u64)?;
+        check_no_overflow(addr.to_u64(), value.len() as u64, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr, value.len() as u64);
         check_permission(self, &page_indices, FLAG_WRITABLE)?;
         self.inner.store_bytes(addr, value)
     }
@@ -140,7 +154,8 @@ impl<M: Memory> Memory for WXorXMemory<M> {
         if size == 0 {
             return Ok(());
         }
-        let page_indices = get_page_indices(addr, size)?;
+        check_no_overflow(addr.to_u64(), size, self.memory_size() as u64)?;
+        let page_indices = get_page_indices(addr, size);
         check_permission(self, &page_indices, FLAG_WRITABLE)?;
         self.inner.store_byte(addr, size, value)
     }

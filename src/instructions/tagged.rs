@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     instructions::{
-        extract_opcode, insts, Instruction, Itype, R4type, R5type, Rtype, Stype, Utype,
+        Instruction, Itype, R4type, R5type, Rtype, Stype, Utype, extract_opcode, insts,
     },
 };
 use core::convert::TryFrom;
@@ -93,6 +93,7 @@ impl TryFrom<Instruction> for TaggedInstruction {
             insts::OP_FENCEI => Rtype(i).into(),
             insts::OP_FENCE => Rtype(i).into(),
             insts::OP_CUSTOM_TRACE_END => Rtype(i).into(),
+            insts::OP_CUSTOM_ASM_TRACE_JUMP => Rtype(i).into(),
             insts::OP_SUB => Rtype(i).into(),
             insts::OP_SUBW => Rtype(i).into(),
             insts::OP_ADD => Rtype(i).into(),

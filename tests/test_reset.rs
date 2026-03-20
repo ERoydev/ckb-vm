@@ -1,11 +1,11 @@
 use bytes::Bytes;
 use ckb_vm::cost_model::constant_cycles;
 #[cfg(has_asm)]
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
-use ckb_vm::machine::{DefaultCoreMachine, DefaultMachineBuilder, VERSION1};
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
+use ckb_vm::machine::{DefaultCoreMachine, RustDefaultMachineBuilder, VERSION1};
 use ckb_vm::{
-    registers::A7, DefaultMachineRunner, Error, Register, SparseMemory, SupportMachine, Syscalls,
-    TraceMachine, WXorXMemory, DEFAULT_STACK_SIZE, ISA_IMC, ISA_MOP, RISCV_MAX_MEMORY,
+    DEFAULT_MEMORY_SIZE, DefaultMachineRunner, Error, ISA_IMC, ISA_MOP, Register, SparseMemory,
+    SupportMachine, Syscalls, TraceMachine, WXorXMemory, registers::A7,
 };
 
 #[allow(dead_code)]
@@ -24,15 +24,15 @@ impl<Mac: SupportMachine> Syscalls<Mac> for CustomSyscall {
             return Ok(false);
         }
         let cycles = machine.cycles();
-        machine.reset(machine.max_cycles());
+        machine.reset(machine.max_cycles()).expect("reset");
         machine.set_cycles(cycles);
         let code_data = std::fs::read("tests/programs/reset_callee").unwrap();
         let code = Bytes::from(code_data);
         machine.load_elf(&code, true).unwrap();
         machine.initialize_stack(
             [].into_iter(),
-            (RISCV_MAX_MEMORY - DEFAULT_STACK_SIZE) as u64,
-            DEFAULT_STACK_SIZE as u64,
+            (DEFAULT_MEMORY_SIZE - DEFAULT_MEMORY_SIZE / 4) as u64,
+            (DEFAULT_MEMORY_SIZE / 4) as u64,
         )?;
         Ok(true)
     }
@@ -48,7 +48,7 @@ fn test_reset_int() {
         VERSION1,
         u64::MAX,
     );
-    let mut machine = DefaultMachineBuilder::new(core_machine)
+    let mut machine = RustDefaultMachineBuilder::new(core_machine)
         .instruction_cycle_func(Box::new(constant_cycles))
         .syscall(Box::new(CustomSyscall {}))
         .build();
@@ -71,7 +71,7 @@ fn test_reset_int_with_trace() {
         u64::MAX,
     );
     let mut machine = TraceMachine::new(
-        DefaultMachineBuilder::new(core_machine)
+        RustDefaultMachineBuilder::new(core_machine)
             .instruction_cycle_func(Box::new(constant_cycles))
             .syscall(Box::new(CustomSyscall {}))
             .build(),
@@ -90,9 +90,8 @@ fn test_reset_asm() {
     let code_data = std::fs::read("tests/programs/reset_caller").unwrap();
     let code = Bytes::from(code_data);
 
-    let asm_core =
-        <Box<AsmCoreMachine> as SupportMachine>::new(ISA_IMC | ISA_MOP, VERSION1, u64::MAX);
-    let core = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core)
+    let asm_core = AsmCoreMachine::new(ISA_IMC | ISA_MOP, VERSION1, u64::MAX);
+    let core = AsmDefaultMachineBuilder::new(asm_core)
         .instruction_cycle_func(Box::new(constant_cycles))
         .syscall(Box::new(CustomSyscall {}))
         .build();

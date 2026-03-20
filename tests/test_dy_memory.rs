@@ -1,34 +1,36 @@
 #[cfg(has_asm)]
 use ckb_vm::{
+    DefaultMachineRunner, ISA_B, ISA_IMC, ISA_MOP, SupportMachine,
     machine::{
-        asm::{AsmCoreMachine, AsmMachine},
-        DefaultMachineBuilder, SupportMachine, VERSION0,
+        VERSION0, VERSION2,
+        asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine},
     },
-    DefaultMachineRunner, ISA_IMC,
 };
-use ckb_vm::{run, FlatMemory, SparseMemory};
+use ckb_vm::{FlatMemory, SparseMemory, error::OutOfBoundKind, run_with_memory};
 use std::fs;
 
 fn run_memory_suc(memory_size: usize, bin_path: String, bin_name: String) {
     let buffer = fs::read(bin_path).unwrap().into();
-    let result =
-        run::<u64, SparseMemory<u64>>(&buffer, &vec![bin_name.clone().into()], memory_size);
+    let result = run_with_memory::<u64, SparseMemory<u64>>(
+        &buffer,
+        &vec![bin_name.clone().into()],
+        memory_size,
+    );
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 
-    let result = run::<u64, FlatMemory<u64>>(&buffer, &vec![bin_name.clone().into()], memory_size);
+    let result = run_with_memory::<u64, FlatMemory<u64>>(
+        &buffer,
+        &vec![bin_name.clone().into()],
+        memory_size,
+    );
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 
     #[cfg(has_asm)]
     {
-        let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new_with_memory(
-            ISA_IMC,
-            VERSION0,
-            u64::MAX,
-            memory_size,
-        );
-        let core = DefaultMachineBuilder::new(asm_core).build();
+        let asm_core = AsmCoreMachine::new_with_memory(ISA_IMC, VERSION0, u64::MAX, memory_size);
+        let core = AsmDefaultMachineBuilder::new(asm_core).build();
         let mut machine = AsmMachine::new(core);
         machine
             .load_program(&buffer, [Ok(bin_name.into())].into_iter())
@@ -52,30 +54,41 @@ fn test_dy_memory() {
 fn test_memory_out_of_bounds() {
     let memory_size = 1024 * 256;
     let buffer = fs::read("tests/programs/alloc_many").unwrap().into();
-    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["alloc_many".into()], memory_size);
+    let result =
+        run_with_memory::<u64, SparseMemory<u64>>(&buffer, &vec!["alloc_many".into()], memory_size);
     assert!(result.is_err());
-    assert_eq!(ckb_vm::Error::MemOutOfBound, result.err().unwrap());
+    assert_eq!(
+        ckb_vm::Error::MemOutOfBound(0xfffffffffff3ffb8, OutOfBoundKind::Memory),
+        result.err().unwrap()
+    );
 
-    let result = run::<u64, FlatMemory<u64>>(&buffer, &vec!["alloc_many".into()], memory_size);
+    let result =
+        run_with_memory::<u64, FlatMemory<u64>>(&buffer, &vec!["alloc_many".into()], memory_size);
     assert!(result.is_err());
-    assert_eq!(ckb_vm::Error::MemOutOfBound, result.err().unwrap());
+    assert_eq!(
+        ckb_vm::Error::MemOutOfBound(0xfffffffffff3ffb8, OutOfBoundKind::Memory),
+        result.err().unwrap()
+    );
 
     #[cfg(has_asm)]
     {
-        let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new_with_memory(
-            ISA_IMC,
-            VERSION0,
+        let asm_core = AsmCoreMachine::new_with_memory(
+            ISA_IMC | ISA_B | ISA_MOP,
+            VERSION2,
             u64::MAX,
             memory_size,
         );
-        let core = DefaultMachineBuilder::new(asm_core).build();
+        let core = AsmDefaultMachineBuilder::new(asm_core).build();
         let mut machine = AsmMachine::new(core);
         machine
             .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
             .unwrap();
         let result = machine.run();
         assert!(result.is_err());
-        assert_eq!(ckb_vm::Error::MemOutOfBound, result.err().unwrap());
+        assert_eq!(
+            ckb_vm::Error::MemOutOfBound(0xfffffffffff3ffb8, OutOfBoundKind::Memory),
+            result.err().unwrap()
+        );
     }
 }
 

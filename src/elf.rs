@@ -1,7 +1,7 @@
 // This module maps the data structure of different versions of goblin to the
 // same internal structure.
 use crate::machine::VERSION1;
-use crate::memory::{round_page_down, round_page_up, FLAG_EXECUTABLE, FLAG_FREEZED};
+use crate::memory::{FLAG_EXECUTABLE, FLAG_FREEZED, round_page_down, round_page_up};
 use crate::{Error, Register};
 use bytes::Bytes;
 use scroll::Pread;
@@ -12,15 +12,15 @@ pub use goblin_v023::elf::program_header::{PF_R, PF_W, PF_X, PT_LOAD};
 pub use goblin_v023::elf::section_header::SHF_EXECINSTR;
 
 /// Converts goblin's ELF flags into RISC-V flags
-pub fn convert_flags(p_flags: u32, allow_freeze_writable: bool) -> Result<u8, Error> {
+pub fn convert_flags(p_flags: u32, allow_freeze_writable: bool, vaddr: u64) -> Result<u8, Error> {
     let readable = p_flags & PF_R != 0;
     let writable = p_flags & PF_W != 0;
     let executable = p_flags & PF_X != 0;
     if !readable {
-        return Err(Error::ElfSegmentUnreadable);
+        return Err(Error::ElfSegmentUnreadable(vaddr));
     }
     if writable && executable {
-        return Err(Error::ElfSegmentWritableAndExecutable);
+        return Err(Error::ElfSegmentWritableAndExecutable(vaddr));
     }
     if executable {
         Ok(FLAG_EXECUTABLE | FLAG_FREEZED)
@@ -137,7 +137,7 @@ pub fn parse_elf<R: Register>(program: &Bytes, version: u32) -> Result<ProgramMe
     // * https://github.com/nervosnetwork/ckb-vm/issues/143
     let (entry, program_headers): (u64, Vec<ProgramHeader>) = if version < VERSION1 {
         use goblin_v023::container::Ctx;
-        use goblin_v023::elf::{program_header::ProgramHeader as GoblinProgramHeader, Header};
+        use goblin_v023::elf::{Header, program_header::ProgramHeader as GoblinProgramHeader};
         let header = program.pread::<Header>(0)?;
         let container = header.container().map_err(|_e| Error::ElfBits)?;
         let endianness = header.endianness().map_err(|_e| Error::ElfBits)?;
@@ -157,7 +157,7 @@ pub fn parse_elf<R: Register>(program: &Bytes, version: u32) -> Result<ProgramMe
         (header.e_entry, program_headers)
     } else {
         use goblin_v040::container::Ctx;
-        use goblin_v040::elf::{program_header::ProgramHeader as GoblinProgramHeader, Header};
+        use goblin_v040::elf::{Header, program_header::ProgramHeader as GoblinProgramHeader};
         let header = program.pread::<Header>(0)?;
         let container = header.container().map_err(|_e| Error::ElfBits)?;
         let endianness = header.endianness().map_err(|_e| Error::ElfBits)?;
@@ -188,12 +188,16 @@ pub fn parse_elf<R: Register>(program: &Bytes, version: u32) -> Result<ProgramMe
                 .p_offset
                 .wrapping_add(program_header.p_filesz);
             if slice_start > slice_end || slice_end > program.len() as u64 {
-                return Err(Error::ElfSegmentAddrOrSizeError);
+                return Err(Error::ElfSegmentAddrOrSizeError(program_header.p_vaddr));
             }
             actions.push(LoadingAction {
                 addr: aligned_start,
                 size,
-                flags: convert_flags(program_header.p_flags, version < VERSION1)?,
+                flags: convert_flags(
+                    program_header.p_flags,
+                    version < VERSION1,
+                    program_header.p_vaddr,
+                )?,
                 source: slice_start..slice_end,
                 offset_from_addr: padding_start,
             });
