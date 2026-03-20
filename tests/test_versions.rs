@@ -1,12 +1,13 @@
 #![cfg(has_asm)]
 use ckb_vm::cost_model::constant_cycles;
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
+use ckb_vm::error::OutOfBoundKind;
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
 use ckb_vm::machine::{VERSION0, VERSION1, VERSION2};
 use ckb_vm::memory::{FLAG_DIRTY, FLAG_FREEZED};
 use ckb_vm::{
-    CoreMachine, DefaultCoreMachine, DefaultMachine, DefaultMachineBuilder, DefaultMachineRunner,
-    Error, Memory, SparseMemory, SupportMachine, TraceMachine, WXorXMemory, ISA_A, ISA_B, ISA_IMC,
-    ISA_MOP, RISCV_PAGESIZE,
+    CoreMachine, DefaultCoreMachine, DefaultMachine, DefaultMachineRunner, Error, ISA_B, ISA_IMC,
+    ISA_MOP, Memory, RISCV_PAGESIZE, RustDefaultMachineBuilder, SparseMemory, SupportMachine,
+    TraceMachine, WXorXMemory,
 };
 use std::fs;
 
@@ -20,7 +21,7 @@ fn create_rust_machine(
     let buffer = fs::read(path).unwrap().into();
     let core_machine = DefaultCoreMachine::<u64, Mem>::new(ISA_IMC, version, u64::MAX);
     let mut machine =
-        DefaultMachineBuilder::<DefaultCoreMachine<u64, Mem>>::new(core_machine).build();
+        RustDefaultMachineBuilder::<DefaultCoreMachine<u64, Mem>>::new(core_machine).build();
     machine
         .load_program(&buffer, [Ok(program.into())].into_iter())
         .unwrap();
@@ -30,8 +31,8 @@ fn create_rust_machine(
 fn create_asm_machine(program: String, version: u32) -> AsmMachine {
     let path = format!("tests/programs/{}", program);
     let buffer = fs::read(path).unwrap().into();
-    let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new(ISA_IMC, version, u64::MAX);
-    let core = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core).build();
+    let asm_core = <AsmCoreMachine as SupportMachine>::new(ISA_IMC, version, u64::MAX);
+    let core = AsmDefaultMachineBuilder::new(asm_core).build();
     let mut machine = AsmMachine::new(core);
     machine
         .load_program(&buffer, [Ok(program.into())].into_iter())
@@ -76,7 +77,10 @@ pub fn test_rust_version0_read_at_boundary() {
     let mut machine = create_rust_machine("read_at_boundary64".to_string(), VERSION0);
     let result = machine.run();
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::MemOutOfBound));
+    assert_eq!(
+        result.err(),
+        Some(Error::MemOutOfBound(0x400000, OutOfBoundKind::Memory))
+    );
 }
 
 #[test]
@@ -172,7 +176,10 @@ pub fn test_asm_version0_read_at_boundary() {
     let mut machine = create_asm_machine("read_at_boundary64".to_string(), VERSION0);
     let result = machine.run();
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::MemOutOfBound));
+    assert_eq!(
+        result.err(),
+        Some(Error::MemOutOfBound(0x400000, OutOfBoundKind::Memory))
+    );
 }
 
 #[test]
@@ -239,10 +246,10 @@ pub fn test_rust_version0_unaligned64() {
         .into();
     let core_machine = DefaultCoreMachine::<u64, Mem>::new(ISA_IMC, VERSION0, u64::MAX);
     let mut machine =
-        DefaultMachineBuilder::<DefaultCoreMachine<u64, Mem>>::new(core_machine).build();
+        RustDefaultMachineBuilder::<DefaultCoreMachine<u64, Mem>>::new(core_machine).build();
     let result = machine.load_program(&buffer, [Ok(program.into())].into_iter());
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage));
+    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage(16)));
 }
 
 #[test]
@@ -259,12 +266,12 @@ pub fn test_asm_version0_unaligned64() {
     let buffer = fs::read(format!("tests/programs/{}", program))
         .unwrap()
         .into();
-    let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new(ISA_IMC, VERSION0, u64::MAX);
-    let core = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core).build();
+    let asm_core = <AsmCoreMachine as SupportMachine>::new(ISA_IMC, VERSION0, u64::MAX);
+    let core = AsmDefaultMachineBuilder::new(asm_core).build();
     let mut machine = AsmMachine::new(core);
     let result = machine.load_program(&buffer, [Ok(program.into())].into_iter());
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage));
+    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage(16)));
 }
 
 #[test]
@@ -339,12 +346,9 @@ pub fn test_asm_version1_asm_trace_bug() {
     let buffer = fs::read("tests/programs/asm_trace_bug").unwrap().into();
 
     let mut machine = {
-        let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new(
-            ISA_IMC | ISA_A | ISA_B | ISA_MOP,
-            VERSION1,
-            2000,
-        );
-        let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core)
+        let asm_core =
+            <AsmCoreMachine as SupportMachine>::new(ISA_IMC | ISA_B | ISA_MOP, VERSION1, 2000);
+        let machine = AsmDefaultMachineBuilder::new(asm_core)
             .instruction_cycle_func(Box::new(constant_cycles))
             .build();
         AsmMachine::new(machine)
@@ -360,12 +364,9 @@ pub fn test_asm_version2_asm_trace_bug() {
     let buffer = fs::read("tests/programs/asm_trace_bug").unwrap().into();
 
     let mut machine = {
-        let asm_core = <Box<AsmCoreMachine> as SupportMachine>::new(
-            ISA_IMC | ISA_A | ISA_B | ISA_MOP,
-            VERSION2,
-            2000,
-        );
-        let machine = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core)
+        let asm_core =
+            <AsmCoreMachine as SupportMachine>::new(ISA_IMC | ISA_B | ISA_MOP, VERSION2, 2000);
+        let machine = AsmDefaultMachineBuilder::new(asm_core)
             .instruction_cycle_func(Box::new(constant_cycles))
             .build();
         AsmMachine::new(machine)
@@ -373,7 +374,10 @@ pub fn test_asm_version2_asm_trace_bug() {
     machine.load_program(&buffer, [].into_iter()).unwrap();
     let result = machine.run();
 
-    assert_eq!(result, Err(Error::MemOutOfBound));
+    assert_eq!(
+        result,
+        Err(Error::MemOutOfBound(21474836484, OutOfBoundKind::Memory))
+    );
 }
 
 #[test]
@@ -382,12 +386,12 @@ pub fn test_trace_version1_asm_trace_bug() {
 
     let mut machine = {
         let core_machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
-            ISA_IMC | ISA_A | ISA_B | ISA_MOP,
+            ISA_IMC | ISA_B | ISA_MOP,
             VERSION1,
             2000,
         );
         TraceMachine::new(
-            DefaultMachineBuilder::new(core_machine)
+            RustDefaultMachineBuilder::new(core_machine)
                 .instruction_cycle_func(Box::new(constant_cycles))
                 .build(),
         )
@@ -404,12 +408,12 @@ pub fn test_trace_version2_asm_trace_bug() {
 
     let mut machine = {
         let core_machine = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
-            ISA_IMC | ISA_A | ISA_B | ISA_MOP,
+            ISA_IMC | ISA_B | ISA_MOP,
             VERSION2,
             2000,
         );
         TraceMachine::new(
-            DefaultMachineBuilder::new(core_machine)
+            RustDefaultMachineBuilder::new(core_machine)
                 .instruction_cycle_func(Box::new(constant_cycles))
                 .build(),
         )
@@ -417,5 +421,8 @@ pub fn test_trace_version2_asm_trace_bug() {
     machine.load_program(&buffer, [].into_iter()).unwrap();
     let result = machine.run();
 
-    assert_eq!(result, Err(Error::MemOutOfBound));
+    assert_eq!(
+        result,
+        Err(Error::MemOutOfBound(21474836484, OutOfBoundKind::Memory))
+    );
 }
