@@ -1,7 +1,7 @@
 [package]
 name = "ckb-vm"
 description = "CKB's Virtual machine"
-version = "0.24.0"
+version = "0.24.14"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -17,7 +17,9 @@ default = []
 asm = []
 # Detect if requirements are met, and enable asm feature when we can.
 detect-asm = []
-enable-chaos-mode-by-default = ["ckb-vm-definitions/enable-chaos-mode-by-default"]
+enable-chaos-mode-by-default = [
+    "ckb-vm-definitions/enable-chaos-mode-by-default",
+]
 # Disable slow tests to run miri on CI
 miri-ci = []
 pprof = []
