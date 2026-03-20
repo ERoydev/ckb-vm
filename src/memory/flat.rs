@@ -1,5 +1,5 @@
-use super::super::{Error, Register, RISCV_MAX_MEMORY, RISCV_PAGESIZE};
-use super::{fill_page_data, get_page_indices, memset, set_dirty, Memory};
+use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
+use super::{Memory, check_no_overflow, fill_page_data, get_page_indices, memset, set_dirty};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
@@ -35,15 +35,10 @@ impl<R> DerefMut for FlatMemory<R> {
 impl<R: Register> Memory for FlatMemory<R> {
     type REG = R;
 
-    fn new() -> Self {
-        Self::new_with_memory(RISCV_MAX_MEMORY)
-    }
-
-    fn new_with_memory(memory_size: usize) -> Self {
-        assert!(memory_size <= RISCV_MAX_MEMORY);
-        assert!(memory_size % RISCV_PAGESIZE == 0);
+    fn new(memory_size: usize) -> Self {
+        assert!(memory_size.is_multiple_of(RISCV_PAGESIZE));
         Self {
-            data: vec![0; memory_size as usize],
+            data: vec![0; memory_size],
             flags: vec![0; memory_size / RISCV_PAGESIZE],
             memory_size,
             riscv_pages: memory_size / RISCV_PAGESIZE,
@@ -67,7 +62,10 @@ impl<R: Register> Memory for FlatMemory<R> {
         if page < self.riscv_pages as u64 {
             Ok(self.flags[page as usize])
         } else {
-            Err(Error::MemOutOfBound)
+            Err(Error::MemOutOfBound(
+                page << RISCV_PAGE_SHIFTS,
+                OutOfBoundKind::Memory,
+            ))
         }
     }
 
@@ -76,7 +74,10 @@ impl<R: Register> Memory for FlatMemory<R> {
             self.flags[page as usize] |= flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound)
+            Err(Error::MemOutOfBound(
+                page << RISCV_PAGE_SHIFTS,
+                OutOfBoundKind::Memory,
+            ))
         }
     }
 
@@ -85,7 +86,10 @@ impl<R: Register> Memory for FlatMemory<R> {
             self.flags[page as usize] &= !flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound)
+            Err(Error::MemOutOfBound(
+                page << RISCV_PAGE_SHIFTS,
+                OutOfBoundKind::Memory,
+            ))
         }
     }
 
@@ -103,9 +107,7 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
         let addr = addr.to_u64();
-        if addr.checked_add(1).ok_or(Error::MemOutOfBound)? > self.len() as u64 {
-            return Err(Error::MemOutOfBound);
-        }
+        check_no_overflow(addr, 1, self.memory_size as u64)?;
         let mut reader = Cursor::new(&self.data);
         reader.seek(SeekFrom::Start(addr as u64))?;
         let v = reader.read_u8()?;
@@ -114,9 +116,7 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn load16(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
         let addr = addr.to_u64();
-        if addr.checked_add(2).ok_or(Error::MemOutOfBound)? > self.len() as u64 {
-            return Err(Error::MemOutOfBound);
-        }
+        check_no_overflow(addr, 2, self.memory_size as u64)?;
         let mut reader = Cursor::new(&self.data);
         reader.seek(SeekFrom::Start(addr as u64))?;
         // NOTE: Base RISC-V ISA is defined as a little-endian memory system.
@@ -126,9 +126,7 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn load32(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
         let addr = addr.to_u64();
-        if addr.checked_add(4).ok_or(Error::MemOutOfBound)? > self.len() as u64 {
-            return Err(Error::MemOutOfBound);
-        }
+        check_no_overflow(addr, 4, self.memory_size as u64)?;
         let mut reader = Cursor::new(&self.data);
         reader.seek(SeekFrom::Start(addr as u64))?;
         // NOTE: Base RISC-V ISA is defined as a little-endian memory system.
@@ -138,9 +136,7 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn load64(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
         let addr = addr.to_u64();
-        if addr.checked_add(8).ok_or(Error::MemOutOfBound)? > self.len() as u64 {
-            return Err(Error::MemOutOfBound);
-        }
+        check_no_overflow(addr, 8, self.memory_size as u64)?;
         let mut reader = Cursor::new(&self.data);
         reader.seek(SeekFrom::Start(addr as u64))?;
         // NOTE: Base RISC-V ISA is defined as a little-endian memory system.
@@ -150,7 +146,8 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn store8(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
         let addr = addr.to_u64();
-        let page_indices = get_page_indices(addr.to_u64(), 1)?;
+        check_no_overflow(addr, 1, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr, 1);
         set_dirty(self, &page_indices)?;
         let mut writer = Cursor::new(&mut self.data);
         writer.seek(SeekFrom::Start(addr as u64))?;
@@ -160,7 +157,8 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn store16(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
         let addr = addr.to_u64();
-        let page_indices = get_page_indices(addr.to_u64(), 2)?;
+        check_no_overflow(addr, 2, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr, 2);
         set_dirty(self, &page_indices)?;
         let mut writer = Cursor::new(&mut self.data);
         writer.seek(SeekFrom::Start(addr as u64))?;
@@ -170,7 +168,8 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn store32(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
         let addr = addr.to_u64();
-        let page_indices = get_page_indices(addr.to_u64(), 4)?;
+        check_no_overflow(addr, 4, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr, 4);
         set_dirty(self, &page_indices)?;
         let mut writer = Cursor::new(&mut self.data);
         writer.seek(SeekFrom::Start(addr as u64))?;
@@ -180,7 +179,8 @@ impl<R: Register> Memory for FlatMemory<R> {
 
     fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
         let addr = addr.to_u64();
-        let page_indices = get_page_indices(addr.to_u64(), 8)?;
+        check_no_overflow(addr, 8, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr, 8);
         set_dirty(self, &page_indices)?;
         let mut writer = Cursor::new(&mut self.data);
         writer.seek(SeekFrom::Start(addr as u64))?;
@@ -193,7 +193,8 @@ impl<R: Register> Memory for FlatMemory<R> {
         if size == 0 {
             return Ok(());
         }
-        let page_indices = get_page_indices(addr.to_u64(), size)?;
+        check_no_overflow(addr, size, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr, size);
         set_dirty(self, &page_indices)?;
         let slice = &mut self[addr as usize..(addr + size) as usize];
         slice.copy_from_slice(value);
@@ -204,7 +205,8 @@ impl<R: Register> Memory for FlatMemory<R> {
         if size == 0 {
             return Ok(());
         }
-        let page_indices = get_page_indices(addr.to_u64(), size)?;
+        check_no_overflow(addr, size, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr, size);
         set_dirty(self, &page_indices)?;
         memset(&mut self[addr as usize..(addr + size) as usize], value);
         Ok(())
@@ -214,9 +216,7 @@ impl<R: Register> Memory for FlatMemory<R> {
         if size == 0 {
             return Ok(Bytes::new());
         }
-        if addr.checked_add(size).ok_or(Error::MemOutOfBound)? > self.memory_size() as u64 {
-            return Err(Error::MemOutOfBound);
-        }
+        check_no_overflow(addr, size, self.memory_size as u64)?;
         Ok(Bytes::from(
             self[addr as usize..(addr + size) as usize].to_vec(),
         ))

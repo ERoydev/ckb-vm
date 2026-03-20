@@ -3,20 +3,21 @@ pub mod asm;
 pub mod trace;
 
 use std::fmt::{self, Display};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::marker::PhantomData;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use bytes::Bytes;
 
 use super::debugger::Debugger;
-use super::decoder::{build_decoder, Decoder};
-use super::elf::{parse_elf, LoadingAction, ProgramMetadata};
-use super::instructions::{execute, Instruction, Register};
-use super::memory::{load_c_string_byte_by_byte, Memory};
+use super::decoder::{DefaultDecoder, InstDecoder};
+use super::elf::{LoadingAction, ProgramMetadata, parse_elf};
+use super::instructions::{Instruction, Register, execute};
+use super::memory::{Memory, load_c_string_byte_by_byte};
 use super::syscalls::Syscalls;
 use super::{
+    DEFAULT_MEMORY_SIZE, Error, ISA_MOP, RISCV_GENERAL_REGISTER_NUMBER,
     registers::{A0, A7, REGISTER_ABI_NAMES, SP},
-    Error, ISA_MOP, RISCV_GENERAL_REGISTER_NUMBER, RISCV_MAX_MEMORY,
 };
 
 // Version 0 is the initial launched CKB VM, it is used in CKB Lina mainnet
@@ -67,7 +68,7 @@ pub trait SupportMachine: CoreMachine {
     where
         Self: Sized,
     {
-        Self::new_with_memory(isa, version, max_cycles, RISCV_MAX_MEMORY)
+        Self::new_with_memory(isa, version, max_cycles, DEFAULT_MEMORY_SIZE)
     }
 
     /// Instantiation function
@@ -88,7 +89,7 @@ pub trait SupportMachine: CoreMachine {
     fn set_running(&mut self, running: bool);
 
     // Erase all the states of the virtual machine.
-    fn reset(&mut self, max_cycles: u64);
+    fn reset(&mut self, max_cycles: u64) -> Result<(), Error>;
     fn reset_signal(&mut self) -> bool;
 
     fn add_cycles(&mut self, cycles: u64) -> Result<(), Error> {
@@ -278,18 +279,28 @@ pub trait SupportMachine: CoreMachine {
 /// A runner trait providing APIs to drive the included DefaultMachine
 pub trait DefaultMachineRunner {
     type Inner: SupportMachine;
+    type Decoder: InstDecoder;
 
     /// Creates a new runner
-    fn new(machine: DefaultMachine<Self::Inner>) -> Self;
+    fn new(machine: DefaultMachine<Self::Inner, Self::Decoder>) -> Self;
 
     /// Fetches DefaultMachine
-    fn machine(&self) -> &DefaultMachine<Self::Inner>;
+    fn machine(&self) -> &DefaultMachine<Self::Inner, Self::Decoder>;
 
     /// Fetches mutable DefaultMachine
-    fn machine_mut(&mut self) -> &mut DefaultMachine<Self::Inner>;
+    fn machine_mut(&mut self) -> &mut DefaultMachine<Self::Inner, Self::Decoder>;
+
+    /// Runs the VM till paused with a custom decoder
+    fn run_with_decoder(&mut self, decoder: &mut Self::Decoder) -> Result<i8, Error>;
 
     /// Runs the VM till paused
-    fn run(&mut self) -> Result<i8, Error>;
+    fn run(&mut self) -> Result<i8, Error> {
+        let mut decoder = Self::Decoder::new::<<Self::Inner as CoreMachine>::REG>(
+            self.machine().isa(),
+            self.machine().version(),
+        );
+        self.run_with_decoder(&mut decoder)
+    }
 
     /// Fetches the inner SupportMachine for more processing
     fn inner_mut(&mut self) -> &mut Self::Inner {
@@ -380,7 +391,7 @@ impl<R: Register, M: Memory<REG = R>> SupportMachine for DefaultCoreMachine<R, M
             pc: Default::default(),
             next_pc: Default::default(),
             reset_signal: Default::default(),
-            memory: M::new_with_memory(memory_size),
+            memory: M::new(memory_size),
             cycles: Default::default(),
             max_cycles,
             running: Default::default(),
@@ -407,14 +418,15 @@ impl<R: Register, M: Memory<REG = R>> SupportMachine for DefaultCoreMachine<R, M
         self.max_cycles = max_cycles;
     }
 
-    fn reset(&mut self, max_cycles: u64) {
+    fn reset(&mut self, max_cycles: u64) -> Result<(), Error> {
         self.registers = Default::default();
         self.pc = Default::default();
-        self.memory = M::new_with_memory(self.memory().memory_size());
+        self.memory = M::new(self.memory().memory_size());
         self.cycles = 0;
         self.max_cycles = max_cycles;
         self.reset_signal = true;
         self.memory_mut().set_lr(&R::from_u64(u64::MAX));
+        Ok(())
     }
 
     fn reset_signal(&mut self) -> bool {
@@ -470,7 +482,7 @@ impl<R: Register, M: Memory> DefaultCoreMachine<R, M> {
 
 pub type InstructionCycleFunc = dyn Fn(Instruction) -> u64 + Send + Sync;
 
-pub struct DefaultMachine<Inner> {
+pub struct DefaultMachine<Inner, Decoder = DefaultDecoder> {
     inner: Inner,
     pause: Pause,
 
@@ -482,9 +494,10 @@ pub struct DefaultMachine<Inner> {
     debugger: Option<Box<dyn Debugger<Inner>>>,
     syscalls: Vec<Box<dyn Syscalls<Inner>>>,
     exit_code: i8,
+    phantom: PhantomData<Decoder>,
 }
 
-impl<Inner: CoreMachine> CoreMachine for DefaultMachine<Inner> {
+impl<Inner: CoreMachine, Decoder> CoreMachine for DefaultMachine<Inner, Decoder> {
     type REG = <Inner as CoreMachine>::REG;
     type MEM = <Inner as CoreMachine>::MEM;
 
@@ -525,7 +538,7 @@ impl<Inner: CoreMachine> CoreMachine for DefaultMachine<Inner> {
     }
 }
 
-impl<Inner: SupportMachine> SupportMachine for DefaultMachine<Inner> {
+impl<Inner: SupportMachine, Decoder> SupportMachine for DefaultMachine<Inner, Decoder> {
     fn new_with_memory(_isa: u8, _version: u32, _max_cycles: u64, _memory_size: usize) -> Self {
         panic!("Please instantiate DefaultMachine using DefaultMachineBuilder!");
     }
@@ -546,8 +559,8 @@ impl<Inner: SupportMachine> SupportMachine for DefaultMachine<Inner> {
         self.inner.set_max_cycles(max_cycles)
     }
 
-    fn reset(&mut self, max_cycles: u64) {
-        self.inner_mut().reset(max_cycles);
+    fn reset(&mut self, max_cycles: u64) -> Result<(), Error> {
+        self.inner_mut().reset(max_cycles)
     }
 
     fn reset_signal(&mut self) -> bool {
@@ -581,7 +594,7 @@ impl<Inner: SupportMachine> SupportMachine for DefaultMachine<Inner> {
     }
 }
 
-impl<Inner: SupportMachine> Machine for DefaultMachine<Inner> {
+impl<Inner: SupportMachine, Decoder> Machine for DefaultMachine<Inner, Decoder> {
     fn ecall(&mut self) -> Result<(), Error> {
         let code = self.registers()[A7].to_u64();
         match code {
@@ -617,7 +630,7 @@ impl<Inner: SupportMachine> Machine for DefaultMachine<Inner> {
     }
 }
 
-impl<Inner: CoreMachine> Display for DefaultMachine<Inner> {
+impl<Inner: CoreMachine, Decoder> Display for DefaultMachine<Inner, Decoder> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         writeln!(f, "pc  : 0x{:16X}", self.pc().to_u64())?;
         for (i, name) in REGISTER_ABI_NAMES.iter().enumerate() {
@@ -632,27 +645,44 @@ impl<Inner: CoreMachine> Display for DefaultMachine<Inner> {
     }
 }
 
-impl<Inner: SupportMachine> DefaultMachineRunner for DefaultMachine<Inner> {
+impl<Inner: SupportMachine, Decoder: InstDecoder> DefaultMachineRunner
+    for DefaultMachine<Inner, Decoder>
+{
     type Inner = Inner;
+    type Decoder = Decoder;
 
-    fn new(machine: DefaultMachine<Inner>) -> Self {
+    fn new(machine: DefaultMachine<Inner, Decoder>) -> Self {
         machine
     }
 
-    fn machine(&self) -> &DefaultMachine<Inner> {
+    fn machine(&self) -> &DefaultMachine<Inner, Decoder> {
         self
     }
 
-    fn machine_mut(&mut self) -> &mut DefaultMachine<Inner> {
+    fn machine_mut(&mut self) -> &mut DefaultMachine<Inner, Decoder> {
         self
     }
 
-    fn run(&mut self) -> Result<i8, Error> {
-        self.run()
+    fn run_with_decoder(&mut self, decoder: &mut Self::Decoder) -> Result<i8, Error> {
+        if self.isa() & ISA_MOP != 0 && self.version() == VERSION0 {
+            return Err(Error::InvalidVersion);
+        }
+        self.set_running(true);
+        while self.running() {
+            if self.pause.has_interrupted() {
+                self.pause.free();
+                return Err(Error::Pause);
+            }
+            if self.reset_signal() {
+                decoder.reset_instructions_cache()?;
+            }
+            self.step(decoder)?;
+        }
+        Ok(self.exit_code())
     }
 }
 
-impl<Inner: SupportMachine> DefaultMachine<Inner> {
+impl<Inner: SupportMachine, Decoder> DefaultMachine<Inner, Decoder> {
     pub fn load_program(
         &mut self,
         program: &Bytes,
@@ -700,7 +730,7 @@ impl<Inner: SupportMachine> DefaultMachine<Inner> {
             self.initialize_stack(args, (memory_size - stack_size) as u64, stack_size as u64)?;
         // Make sure SP is 16 byte aligned
         if self.inner.version() >= VERSION1 {
-            debug_assert!(self.registers()[SP].to_u64() % 16 == 0);
+            debug_assert!(self.registers()[SP].to_u64().is_multiple_of(16));
         }
         Ok(stack_bytes)
     }
@@ -729,30 +759,7 @@ impl<Inner: SupportMachine> DefaultMachine<Inner> {
         &mut self.inner
     }
 
-    // This is the most naive way of running the VM, it only decodes each
-    // instruction and run it, no optimization is performed here. It might
-    // not be practical in production, but it serves as a baseline and
-    // reference implementation
-    pub fn run(&mut self) -> Result<i8, Error> {
-        if self.isa() & ISA_MOP != 0 && self.version() == VERSION0 {
-            return Err(Error::InvalidVersion);
-        }
-        let mut decoder = build_decoder::<Inner::REG>(self.isa(), self.version());
-        self.set_running(true);
-        while self.running() {
-            if self.pause.has_interrupted() {
-                self.pause.free();
-                return Err(Error::Pause);
-            }
-            if self.reset_signal() {
-                decoder.reset_instructions_cache();
-            }
-            self.step(&mut decoder)?;
-        }
-        Ok(self.exit_code())
-    }
-
-    pub fn step(&mut self, decoder: &mut Decoder) -> Result<(), Error> {
+    pub fn step<D: InstDecoder>(&mut self, decoder: &mut D) -> Result<(), Error> {
         let instruction = {
             let pc = self.pc().to_u64();
             let memory = self.memory_mut();
@@ -764,15 +771,19 @@ impl<Inner: SupportMachine> DefaultMachine<Inner> {
     }
 }
 
-pub struct DefaultMachineBuilder<Inner> {
+/// This builder only works with Rust VMs
+pub type RustDefaultMachineBuilder<Inner> = AbstractDefaultMachineBuilder<Inner, DefaultDecoder>;
+
+pub struct AbstractDefaultMachineBuilder<Inner, Decoder> {
     inner: Inner,
     instruction_cycle_func: Box<InstructionCycleFunc>,
     debugger: Option<Box<dyn Debugger<Inner>>>,
     syscalls: Vec<Box<dyn Syscalls<Inner>>>,
     pause: Pause,
+    phantom: PhantomData<Decoder>,
 }
 
-impl<Inner> DefaultMachineBuilder<Inner> {
+impl<Inner, Decoder> AbstractDefaultMachineBuilder<Inner, Decoder> {
     pub fn new(inner: Inner) -> Self {
         Self {
             inner,
@@ -780,6 +791,7 @@ impl<Inner> DefaultMachineBuilder<Inner> {
             debugger: None,
             syscalls: vec![],
             pause: Pause::new(),
+            phantom: PhantomData,
         }
     }
 
@@ -806,7 +818,7 @@ impl<Inner> DefaultMachineBuilder<Inner> {
         self
     }
 
-    pub fn build(self) -> DefaultMachine<Inner> {
+    pub fn build(self) -> DefaultMachine<Inner, Decoder> {
         DefaultMachine {
             inner: self.inner,
             pause: self.pause,
@@ -814,6 +826,7 @@ impl<Inner> DefaultMachineBuilder<Inner> {
             debugger: self.debugger,
             syscalls: self.syscalls,
             exit_code: 0,
+            phantom: PhantomData,
         }
     }
 }
@@ -853,6 +866,7 @@ pub struct FlattenedArgsReader<'a, M: Memory> {
     argv: M::REG,
     cidx: M::REG,
 }
+
 impl<'a, M: Memory> FlattenedArgsReader<'a, M> {
     pub fn new(memory: &'a mut M, argc: M::REG, argv: M::REG) -> Self {
         Self {
@@ -863,8 +877,10 @@ impl<'a, M: Memory> FlattenedArgsReader<'a, M> {
         }
     }
 }
-impl<'a, M: Memory> Iterator for FlattenedArgsReader<'a, M> {
+
+impl<M: Memory> Iterator for FlattenedArgsReader<'_, M> {
     type Item = Result<Bytes, Error>;
+
     fn next(&mut self) -> Option<Self::Item> {
         if self.cidx.ge(&self.argc).to_u8() == 1 {
             return None;
@@ -890,7 +906,8 @@ impl<'a, M: Memory> Iterator for FlattenedArgsReader<'a, M> {
         Some(Ok(cstr))
     }
 }
-impl<'a, M: Memory> ExactSizeIterator for FlattenedArgsReader<'a, M> {
+
+impl<M: Memory> ExactSizeIterator for FlattenedArgsReader<'_, M> {
     fn len(&self) -> usize {
         self.argc.to_u64() as usize
     }

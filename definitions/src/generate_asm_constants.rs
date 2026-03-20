@@ -1,23 +1,23 @@
 use ckb_vm_definitions::{
+    MEMORY_FRAME_PAGE_SHIFTS, MEMORY_FRAME_SHIFTS, MEMORY_FRAMESIZE, RISCV_PAGE_SHIFTS,
+    RISCV_PAGESIZE,
     asm::{
-        AsmCoreMachine, Trace, RET_CYCLES_OVERFLOW, RET_DECODE_TRACE, RET_DYNAMIC_JUMP, RET_EBREAK,
-        RET_ECALL, RET_INVALID_PERMISSION, RET_MAX_CYCLES_EXCEEDED, RET_OUT_OF_BOUND, RET_PAUSE,
-        RET_SLOWPATH, TRACE_ITEM_LENGTH,
+        AsmCoreMachine, FixedTrace, InvokeData, RET_CYCLES_OVERFLOW, RET_DECODE_TRACE,
+        RET_DYNAMIC_JUMP, RET_EBREAK, RET_ECALL, RET_INVALID_PERMISSION, RET_MAX_CYCLES_EXCEEDED,
+        RET_OUT_OF_BOUND, RET_PAUSE, RET_SLOWPATH, TRACE_ITEM_LENGTH,
     },
     for_each_inst,
-    instructions::{instruction_opcode_name, Instruction, MAXIMUM_OPCODE, MINIMAL_OPCODE},
+    instructions::{MAXIMUM_OPCODE, MINIMAL_OPCODE, instruction_opcode_name},
     memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, FLAG_WXORX_BIT},
     registers::{RA, SP},
-    MEMORY_FRAMES, MEMORY_FRAMESIZE, MEMORY_FRAME_PAGE_SHIFTS, MEMORY_FRAME_SHIFTS,
-    RISCV_MAX_MEMORY, RISCV_PAGES, RISCV_PAGESIZE, RISCV_PAGE_SHIFTS,
 };
-use std::alloc::{alloc, Layout};
+use std::alloc::{Layout, alloc};
 use std::mem::{size_of, zeroed};
 
 macro_rules! print_inst_label {
     ($name:ident, $real_name:ident, $code:expr) => {
         println!(
-            "\t.long\t.CKB_VM_ASM_LABEL_OP_{} - .CKB_VM_ASM_LABEL_TABLE",
+            "\t.long\t.CKB_VM_ASM_LABEL_OP_{} - .CKB_VM_X64_EXECUTE",
             stringify!($real_name)
         );
     };
@@ -31,17 +31,14 @@ macro_rules! print_inst_label {
 // of this as a workaround to the problem that build.rs cannot depend on any
 // of its crate contents.
 fn main() {
-    println!("#define CKB_VM_ASM_RISCV_MAX_MEMORY {}", RISCV_MAX_MEMORY);
     println!("#define CKB_VM_ASM_RISCV_PAGE_SHIFTS {}", RISCV_PAGE_SHIFTS);
     println!("#define CKB_VM_ASM_RISCV_PAGE_SIZE {}", RISCV_PAGESIZE);
     println!("#define CKB_VM_ASM_RISCV_PAGE_MASK {}", RISCV_PAGESIZE - 1);
-    println!("#define CKB_VM_ASM_RISCV_PAGES {}", RISCV_PAGES);
     println!(
         "#define CKB_VM_ASM_MEMORY_FRAME_SHIFTS {}",
         MEMORY_FRAME_SHIFTS
     );
     println!("#define CKB_VM_ASM_MEMORY_FRAMESIZE {}", MEMORY_FRAMESIZE);
-    println!("#define CKB_VM_ASM_MEMORY_FRAMES {}", MEMORY_FRAMES);
     println!(
         "#define CKB_VM_ASM_MEMORY_FRAME_PAGE_SHIFTS {}",
         MEMORY_FRAME_PAGE_SHIFTS
@@ -93,31 +90,43 @@ fn main() {
     println!();
 
     println!(
-        "#define CKB_VM_ASM_TRACE_STRUCT_SIZE {}",
-        size_of::<Trace>()
+        "#define CKB_VM_ASM_FIXED_TRACE_STRUCT_SIZE {}",
+        size_of::<FixedTrace>()
     );
 
-    let t: Trace = unsafe { zeroed() };
-    let t_address = &t as *const Trace as usize;
+    let t: FixedTrace = unsafe { zeroed() };
+    let t_address = &t as *const FixedTrace as usize;
     println!(
         "#define CKB_VM_ASM_TRACE_OFFSET_ADDRESS {}",
         (&t.address as *const u64 as usize) - t_address
     );
     println!(
         "#define CKB_VM_ASM_TRACE_OFFSET_LENGTH {}",
-        (&t.length as *const u8 as usize) - t_address
+        (&t.length as *const u32 as usize) - t_address
     );
     println!(
         "#define CKB_VM_ASM_TRACE_OFFSET_CYCLES {}",
         (&t.cycles as *const u64 as usize) - t_address
     );
     println!(
-        "#define CKB_VM_ASM_TRACE_OFFSET_INSTRUCTIONS {}",
-        (&t.instructions as *const Instruction as usize) - t_address
+        "#define CKB_VM_ASM_TRACE_OFFSET_THREADS {}",
+        (&t._threads as *const u64 as usize) - t_address
+    );
+    println!();
+
+    let i: InvokeData = unsafe { zeroed() };
+    let i_address = &i as *const InvokeData as usize;
+    println!(
+        "#define CKB_VM_ASM_INVOKE_DATA_OFFSET_PAUSE {}",
+        (&i.pause as *const _ as usize) - i_address,
     );
     println!(
-        "#define CKB_VM_ASM_TRACE_OFFSET_THREAD {}",
-        (&t.thread as *const u64 as usize) - t_address
+        "#define CKB_VM_ASM_INVOKE_DATA_OFFSET_FIXED_TRACES {}",
+        (&i.fixed_traces as *const _ as usize) - i_address,
+    );
+    println!(
+        "#define CKB_VM_ASM_INVOKE_DATA_OFFSET_FIXED_TRACE_MASK {}",
+        (&i.fixed_trace_mask as *const _ as usize) - i_address,
     );
     println!();
 
@@ -164,6 +173,10 @@ fn main() {
         (&m.version as *const u32 as usize) - m_address
     );
     println!(
+        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_ERROR_ARG0 {}",
+        (&m.error_arg0 as *const u64 as usize) - m_address
+    );
+    println!(
         "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_MEMORY_SIZE {}",
         (&m.memory_size as *const u64 as usize) - m_address
     );
@@ -184,35 +197,18 @@ fn main() {
         "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_LAST_WRITE_PAGE {}",
         (&m.last_write_page as *const u64 as usize) - m_address
     );
-
     println!(
-        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_FLAGS {}",
-        (&m.flags as *const u8 as usize) - m_address
-    );
-    let memory_offset_address = (&m.memory as *const u8 as usize) - m_address;
-    println!(
-        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_MEMORY {}",
-        memory_offset_address
+        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_MEMORY_PTR {}",
+        (&m.memory_ptr as *const u64 as usize) - m_address
     );
     println!(
-        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_TRACES {}",
-        (&m.traces as *const Trace as usize) - m_address
+        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_FLAGS_PTR {}",
+        (&m.flags_ptr as *const u64 as usize) - m_address
     );
     println!(
-        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_FRAMES {}",
-        (&m.frames as *const u8 as usize) - m_address
+        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_FRAMES_PTR {}",
+        (&m.frames_ptr as *const u64 as usize) - m_address
     );
-    println!();
-
-    println!(
-        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_MEMORY_H {}",
-        memory_offset_address.wrapping_shr(12).wrapping_shl(12)
-    );
-    println!(
-        "#define CKB_VM_ASM_ASM_CORE_MACHINE_OFFSET_MEMORY_L {}",
-        memory_offset_address & 0xFFF
-    );
-
     println!();
 
     for op in MINIMAL_OPCODE..MAXIMUM_OPCODE {
@@ -226,16 +222,26 @@ fn main() {
 
     println!("#ifdef CKB_VM_ASM_GENERATE_LABEL_TABLES");
     println!("#ifdef __APPLE__");
+    println!(".section __DATA,__const");
+    println!(".p2align 3");
     println!(".global _ckb_vm_asm_labels");
     println!("_ckb_vm_asm_labels:");
+    println!("#elif __riscv");
+    println!(".section .rodata");
+    println!(".p2align 3");
+    println!(".global ckb_vm_asm_labels");
+    println!("ckb_vm_asm_labels:");
     println!("#else");
+    println!(".section .rodata");
+    println!(".p2align 3");
     println!(".global ckb_vm_asm_labels");
     println!("ckb_vm_asm_labels:");
     println!("#endif");
     println!(".CKB_VM_ASM_LABEL_TABLE:");
     for _ in 0..0x10 {
-        println!("\t.long\t.exit_slowpath - .CKB_VM_ASM_LABEL_TABLE");
+        println!("\t.long\t.exit_slowpath - .CKB_VM_X64_EXECUTE");
     }
     for_each_inst!(print_inst_label);
     println!("#endif /* CKB_VM_ASM_GENERATE_LABEL_TABLES */");
+    println!(".text");
 }

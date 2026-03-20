@@ -1,8 +1,8 @@
 use super::{
-    super::{machine::Machine, Error},
-    common, extract_opcode, instruction_length,
+    super::{Error, machine::Machine},
+    Instruction, InstructionOpcode, Itype, R4type, R5type, Register, Rtype, Stype, Utype, common,
+    extract_opcode, instruction_length,
     utils::update_register,
-    Instruction, InstructionOpcode, Itype, R4type, R5type, Register, Rtype, Stype, Utype,
 };
 use crate::memory::Memory;
 use ckb_vm_definitions::{
@@ -1533,6 +1533,13 @@ pub fn handle_custom_trace_end<Mac: Machine>(
     handle_invalid_op(machine, inst)
 }
 
+pub fn handle_custom_asm_trace_jump<Mac: Machine>(
+    machine: &mut Mac,
+    inst: Instruction,
+) -> Result<(), Error> {
+    handle_invalid_op(machine, inst)
+}
+
 pub fn handle_invalid_op<Mac: Machine>(_machine: &mut Mac, inst: Instruction) -> Result<(), Error> {
     Err(Error::InvalidOp(extract_opcode(inst)))
 }
@@ -1587,12 +1594,10 @@ pub fn execute_with_thread<Mac: Machine>(
 
 pub type Thread<Mac> = fn(&mut Mac, Instruction) -> Result<(), Error>;
 
-const FASTPATH_THREADS: usize = insts::MAXIMUM_OPCODE as usize + 1 - insts::MINIMAL_OPCODE as usize;
-
 pub struct ThreadFactory<Mac: Machine> {
     // Right now we are only dealing with fastpath opcodes, later we might
     // (or might not?) expand this with some opcodes in the slowpath category.
-    threads: [Thread<Mac>; FASTPATH_THREADS],
+    threads: Vec<Thread<Mac>>,
 }
 
 macro_rules! thread_func_item {
@@ -1606,7 +1611,9 @@ macro_rules! thread_func_item {
 impl<Mac: Machine> ThreadFactory<Mac> {
     pub fn create() -> Self {
         let threads = for_each_inst_array1!(thread_func_item, Mac);
-        Self { threads }
+        Self {
+            threads: Vec::from(threads),
+        }
     }
 
     pub fn get(&self, op: InstructionOpcode) -> Option<&Thread<Mac>> {

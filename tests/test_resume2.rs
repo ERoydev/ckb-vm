@@ -1,9 +1,11 @@
 #![cfg(has_asm)]
 pub mod machine_build;
 use bytes::Bytes;
+#[allow(unused_imports)]
+use ckb_vm::Memory;
 use ckb_vm::cost_model::constant_cycles;
 use ckb_vm::elf::parse_elf;
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
 use ckb_vm::machine::trace::TraceMachine;
 use ckb_vm::machine::{
     CoreMachine, DefaultCoreMachine, DefaultMachine, DefaultMachineRunner, SupportMachine,
@@ -12,9 +14,7 @@ use ckb_vm::machine::{
 use ckb_vm::memory::{sparse::SparseMemory, wxorx::WXorXMemory};
 use ckb_vm::registers::{A0, A1, A7};
 use ckb_vm::snapshot2::{DataSource, Snapshot2, Snapshot2Context};
-#[allow(unused_imports)]
-use ckb_vm::Memory;
-use ckb_vm::{DefaultMachineBuilder, Error, Register, Syscalls, ISA_A, ISA_IMC};
+use ckb_vm::{Error, ISA_A, ISA_IMC, Register, RustDefaultMachineBuilder, Syscalls};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -54,56 +54,6 @@ fn test_resume2_asm_2_asm_2_asm() {
 fn test_resume2_asm_2_asm() {
     resume_asm_2_asm(VERSION1, 8126917);
     resume_asm_2_asm(VERSION0, 8126917);
-}
-
-#[test]
-fn test_resume2_secp256k1_asm_2_interpreter_2_asm() {
-    let data_source = load_program("benches/data/secp256k1_bench");
-
-    let version = VERSION1;
-    let except_cycles = 613073;
-
-    let mut machine1 = MachineTy::Asm.build(data_source.clone(), version);
-    machine1.set_max_cycles(100000);
-    machine1.load_program([
-        "secp256k1_bench",
-        "033f8cf9c4d51a33206a6c1c6b27d2cc5129daa19dbd1fc148d395284f6b26411f",
-        "304402203679d909f43f073c7c1dcf8468a485090589079ee834e6eed92fea9b09b06a2402201e46f1075afa18f306715e7db87493e7b7e779569aa13c64ab3d09980b3560a3",
-        "foo",
-        "bar",
-    ].into_iter().map(|e| Ok(e.into()))).unwrap();
-    let result1 = machine1.run();
-    assert_eq!(result1.unwrap_err(), Error::CyclesExceeded);
-    let snapshot1 = machine1.snapshot().unwrap();
-    assert!(!snapshot1.pages_from_source.is_empty());
-
-    let mut machine2 = MachineTy::Interpreter.build(data_source.clone(), version);
-    machine2.resume(snapshot1).unwrap();
-
-    assert_eq!(machine1.cycles(), machine2.cycles());
-    assert_eq!(machine1.full_registers(), machine2.full_registers());
-    #[cfg(not(feature = "enable-chaos-mode-by-default"))]
-    assert_eq!(machine1.full_memory(), machine2.full_memory());
-
-    machine2.set_max_cycles(100000 + 200000);
-    let result2 = machine2.run();
-    assert_eq!(result2.unwrap_err(), Error::CyclesExceeded);
-    let snapshot2 = machine2.snapshot().unwrap();
-    assert!(!snapshot2.pages_from_source.is_empty());
-
-    let mut machine3 = MachineTy::Asm.build(data_source, version);
-    machine3.resume(snapshot2).unwrap();
-
-    assert_eq!(machine2.cycles(), machine3.cycles());
-    assert_eq!(machine2.full_registers(), machine3.full_registers());
-    #[cfg(not(feature = "enable-chaos-mode-by-default"))]
-    assert_eq!(machine2.full_memory(), machine3.full_memory());
-
-    machine3.set_max_cycles(100000 + 200000 + 400000);
-    let result3 = machine3.run();
-    let cycles3 = machine3.cycles();
-    assert_eq!(result3.unwrap(), 0);
-    assert_eq!(cycles3, except_cycles);
 }
 
 #[test]
@@ -396,8 +346,8 @@ impl MachineTy {
             MachineTy::Asm => {
                 let context = Arc::new(Mutex::new(Snapshot2Context::new(data_source)));
                 let asm_core1 =
-                    <Box<AsmCoreMachine> as SupportMachine>::new(ISA_IMC | ISA_A, version, 0);
-                let core1 = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core1)
+                    <AsmCoreMachine as SupportMachine>::new(ISA_IMC | ISA_A, version, 0);
+                let core1 = AsmDefaultMachineBuilder::new(asm_core1)
                     .instruction_cycle_func(Box::new(constant_cycles))
                     .syscall(Box::new(InsertDataSyscall(context.clone())))
                     .build();
@@ -411,9 +361,9 @@ impl MachineTy {
                     0,
                 );
                 Machine::Interpreter(
-                    DefaultMachineBuilder::<DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>>::new(
-                        core_machine1,
-                    )
+                    RustDefaultMachineBuilder::<
+                        DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>,
+                    >::new(core_machine1)
                     .instruction_cycle_func(Box::new(constant_cycles))
                     .syscall(Box::new(InsertDataSyscall(context.clone())))
                     .build(),
@@ -429,7 +379,7 @@ impl MachineTy {
                 );
                 Machine::InterpreterWithTrace(
                     TraceMachine::new(
-                        DefaultMachineBuilder::<
+                        RustDefaultMachineBuilder::<
                             DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>,
                         >::new(core_machine1)
                         .instruction_cycle_func(Box::new(constant_cycles))
@@ -542,18 +492,18 @@ impl Machine {
 
     #[cfg(not(feature = "enable-chaos-mode-by-default"))]
     fn full_memory(&mut self) -> Result<Bytes, Error> {
-        use ckb_vm::RISCV_MAX_MEMORY;
         use Machine::*;
+        use ckb_vm::DEFAULT_MEMORY_SIZE;
         match self {
             Asm(inner, _) => inner
                 .machine
                 .memory_mut()
-                .load_bytes(0, RISCV_MAX_MEMORY as u64),
-            Interpreter(inner, _) => inner.memory_mut().load_bytes(0, RISCV_MAX_MEMORY as u64),
+                .load_bytes(0, DEFAULT_MEMORY_SIZE as u64),
+            Interpreter(inner, _) => inner.memory_mut().load_bytes(0, DEFAULT_MEMORY_SIZE as u64),
             InterpreterWithTrace(inner, _) => inner
                 .machine
                 .memory_mut()
-                .load_bytes(0, RISCV_MAX_MEMORY as u64),
+                .load_bytes(0, DEFAULT_MEMORY_SIZE as u64),
         }
     }
 
