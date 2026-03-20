@@ -15,12 +15,15 @@ pub use self::register::Register;
 use super::Error;
 pub use ckb_vm_definitions::{
     instructions::{
-        self as insts, instruction_opcode_name, Instruction, InstructionOpcode, MINIMAL_OPCODE,
+        self as insts, Instruction, InstructionOpcode, MAXIMUM_BASIC_BLOCK_END_OPCODE,
+        MINIMAL_BASIC_BLOCK_END_OPCODE, MINIMAL_OPCODE, instruction_opcode_name,
     },
     registers::REGISTER_ABI_NAMES,
 };
 use core::fmt;
-pub use execute::{execute, execute_instruction};
+pub use execute::{
+    Thread, ThreadFactory, execute, execute_instruction, execute_with_thread, handle_invalid_op,
+};
 
 pub type RegisterIndex = usize;
 pub type SImmediate = i32;
@@ -410,23 +413,9 @@ pub fn is_slowpath_instruction(i: Instruction) -> bool {
 }
 
 pub fn is_basic_block_end_instruction(i: Instruction) -> bool {
-    matches!(
-        extract_opcode(i),
-        insts::OP_AUIPC
-            | insts::OP_JALR_VERSION0
-            | insts::OP_JALR_VERSION1
-            | insts::OP_BEQ
-            | insts::OP_BNE
-            | insts::OP_BLT
-            | insts::OP_BGE
-            | insts::OP_BLTU
-            | insts::OP_BGEU
-            | insts::OP_ECALL
-            | insts::OP_EBREAK
-            | insts::OP_JAL
-            | insts::OP_FAR_JUMP_ABS
-            | insts::OP_FAR_JUMP_REL
-    ) | is_slowpath_instruction(i)
+    let opcode = extract_opcode(i);
+    (MINIMAL_BASIC_BLOCK_END_OPCODE..=MAXIMUM_BASIC_BLOCK_END_OPCODE).contains(&opcode)
+        || is_slowpath_instruction(i)
 }
 
 #[inline(always)]
@@ -441,7 +430,7 @@ pub fn set_instruction_length_4(i: u64) -> u64 {
 
 #[inline(always)]
 pub fn set_instruction_length_n(i: u64, n: u8) -> u64 {
-    debug_assert!(n % 2 == 0);
+    debug_assert!(n.is_multiple_of(2));
     debug_assert!(n <= 30);
     i | ((n as u64 & 0x1f) >> 1 << 24)
 }
@@ -455,6 +444,8 @@ pub fn instruction_length(i: Instruction) -> u8 {
 mod tests {
     use super::i::factory;
     use super::*;
+    use ckb_vm_definitions::{for_each_inst1, instructions::MAXIMUM_OPCODE};
+    use std::cmp::{max, min};
     use std::mem::size_of;
 
     #[test]
@@ -466,16 +457,90 @@ mod tests {
     fn test_stype_display() {
         // This is "sd	a5,568(sp)"
         let sd_inst = 0x22f13c23;
-        let decoded = factory::<u64>(sd_inst, u32::max_value()).expect("decoding");
+        let decoded = factory::<u64>(sd_inst, u32::MAX).expect("decoding");
         let stype = Stype(decoded);
 
         assert_eq!("sd a5,568(sp)", format!("{}", stype));
 
         // This is "beq	a0,a5,1012e"
         let sd_inst = 0xf4f500e3;
-        let decoded = factory::<u64>(sd_inst, u32::max_value()).expect("decoding");
+        let decoded = factory::<u64>(sd_inst, u32::MAX).expect("decoding");
         let stype = Stype(decoded);
 
         assert_eq!("beq a0,a5,-192", format!("{}", stype));
+    }
+
+    macro_rules! update_min_opcode {
+        ($name:ident, $real_name:ident, $code:expr, $x:ident) => {
+            $x = min($code, $x);
+        };
+    }
+
+    #[test]
+    fn test_minimal_opcode_is_minimal() {
+        let mut o = MINIMAL_OPCODE;
+        for_each_inst1!(update_min_opcode, o);
+        assert_eq!(MINIMAL_OPCODE, o);
+    }
+
+    macro_rules! update_max_opcode {
+        ($name:ident, $real_name:ident, $code:expr, $x:ident) => {
+            $x = max($code, $x);
+        };
+    }
+
+    #[test]
+    fn test_maximal_opcode_is_maximal() {
+        let mut o = MAXIMUM_OPCODE;
+        for_each_inst1!(update_max_opcode, o);
+        assert_eq!(MAXIMUM_OPCODE, o);
+    }
+
+    #[test]
+    fn test_basic_block_end_opcode_is_in_range() {
+        for o in MINIMAL_OPCODE..=MAXIMUM_OPCODE {
+            if is_basic_block_end_instruction(blank_instruction(o)) {
+                assert!(
+                    o >= MINIMAL_BASIC_BLOCK_END_OPCODE,
+                    "Opcode {} ({}) is smaller than minimal basic block end opcode!",
+                    o,
+                    instruction_opcode_name(o)
+                );
+                assert!(
+                    o <= MAXIMUM_BASIC_BLOCK_END_OPCODE,
+                    "Opcode {} ({}) is bigger than maximum basic block end opcode!",
+                    o,
+                    instruction_opcode_name(o)
+                );
+            }
+        }
+    }
+
+    macro_rules! test_opcode_with_last {
+        ($name:ident, $real_name:ident, $code:expr, $last:ident) => {
+            assert_eq!(
+                $last + 1,
+                $code,
+                "Opcode {} ({}) does not follow last opcode!",
+                stringify!($real_name),
+                $code
+            );
+            $last = $code;
+        };
+    }
+
+    #[test]
+    fn test_opcodes_are_defined_seqentially() {
+        let mut last = MINIMAL_OPCODE - 1;
+        for_each_inst1!(test_opcode_with_last, last);
+        assert_eq!(last, MAXIMUM_OPCODE);
+    }
+
+    #[test]
+    fn test_instruction_is_essentially_u64() {
+        assert_eq!(
+            std::mem::size_of::<Instruction>(),
+            std::mem::size_of::<u64>()
+        );
     }
 }

@@ -1,10 +1,13 @@
 set -ex
 
+riscv64-unknown-elf-gcc -o resume2_load_data resume2_load_data.c
 riscv64-unknown-elf-gcc -o alloc_many alloc_many.c
+riscv64-unknown-elf-as -o amo_check_write.o amo_check_write.S && riscv64-unknown-elf-ld -T amo_check_write.lds -o amo_check_write amo_check_write.o && rm amo_check_write.o
 riscv64-unknown-elf-as -o amo_compare.o amo_compare.S && riscv64-unknown-elf-ld -T amo_compare.lds -o amo_compare amo_compare.o && rm amo_compare.o
 riscv64-unknown-elf-as -o amo_write_permission.o amo_write_permission.S && riscv64-unknown-elf-ld -o amo_write_permission amo_write_permission.o && rm amo_write_permission.o
 # SKIP: andi
 riscv64-unknown-elf-gcc -o argv_null_test argv_null_test.c
+riscv64-unknown-elf-gcc -o big_binary big_binary.c
 riscv64-unknown-elf-as -march=rv64imc -o cadd_hints.o cadd_hints.S && riscv64-unknown-elf-ld -o cadd_hints cadd_hints.o && rm cadd_hints.o
 riscv64-unknown-elf-as -o ckbforks.o ckbforks.S && riscv64-unknown-elf-ld -o ckbforks ckbforks.o && rm ckbforks.o
 # TODO: clzw_bug
@@ -36,10 +39,12 @@ riscv64-unknown-elf-gcc -o mop_wide_divide mop_wide_divide.c
 riscv64-unknown-elf-as -o mop_wide_mul_zero.o mop_wide_mul_zero.S && riscv64-unknown-elf-ld -o mop_wide_mul_zero mop_wide_mul_zero.o && rm mop_wide_mul_zero.o
 riscv64-unknown-elf-gcc -o mop_wide_multiply mop_wide_multiply.c
 riscv64-unknown-elf-as -o mulw.o mulw.S && riscv64-unknown-elf-ld -o mulw64 mulw.o && rm mulw.o
-# SKIP: nop
+riscv64-unknown-elf-as -o nop64.o nop.S && riscv64-unknown-elf-ld -o nop64 nop64.o && rm nop64.o
+riscv64-unknown-elf-as -o nop_loop.o nop_loop.S && riscv64-unknown-elf-ld -o nop_loop nop_loop.o && rm nop_loop.o
 # SKIP: op_rvc_slli_crash_32
 # SKIP: op_rvc_srai_crash_32
 # SKIP: op_rvc_srli_crash_32
+riscv64-unknown-elf-gcc -o pause_resume pause_resume.c
 # TODO: pcnt
 riscv64-unknown-elf-as -o read_at_boundary.o read_at_boundary.S && riscv64-unknown-elf-ld -o read_at_boundary64 read_at_boundary.o && rm read_at_boundary.o
 riscv64-unknown-elf-as -o read_memory.o read_memory.S && riscv64-unknown-elf-ld -o read_memory read_memory.o && rm read_memory.o
@@ -49,9 +54,12 @@ riscv64-unknown-elf-as -o rorw_in_end_of_aot_block.o rorw_in_end_of_aot_block.S 
 sh rvc_pageend.sh
 # TODO: sbinvi_aot_load_imm_bug
 riscv64-unknown-elf-as -o sc_after_sc.o sc_after_sc.S && riscv64-unknown-elf-ld -T sc_after_sc.lds -o sc_after_sc sc_after_sc.o && rm sc_after_sc.o
+riscv64-unknown-elf-as -o sc_after_snapshot.o sc_after_snapshot.S && riscv64-unknown-elf-ld -T sc_after_snapshot.lds -o sc_after_snapshot sc_after_snapshot.o && rm sc_after_snapshot.o
+riscv64-unknown-elf-as -o sc_only.o sc_only.S && riscv64-unknown-elf-ld -T sc_only.lds -o sc_only sc_only.o && rm sc_only.o
 # SKIP: simple
 riscv64-unknown-elf-gcc -o simple64 simple.c
 riscv64-unknown-elf-as -o sp_alignment_test.o sp_alignment_test.S && riscv64-unknown-elf-ld -o sp_alignment_test sp_alignment_test.o && rm sp_alignment_test.o
+riscv64-unknown-elf-gcc -o spawn spawn.c
 riscv64-unknown-elf-as -o syscall.o syscall.S && riscv64-unknown-elf-ld -o syscall64 syscall.o && rm syscall.o
 riscv64-unknown-elf-as -o trace.o trace.S && riscv64-unknown-elf-ld -o trace64 trace.o && rm trace.o
 # SKIP: unaligned64

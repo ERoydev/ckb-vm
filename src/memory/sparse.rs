@@ -1,5 +1,5 @@
-use super::super::{Error, Register, RISCV_MAX_MEMORY, RISCV_PAGESIZE, RISCV_PAGE_SHIFTS};
-use super::{fill_page_data, memset, round_page_down, Memory, Page, FLAG_DIRTY};
+use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
+use super::{FLAG_DIRTY, Memory, Page, check_no_overflow, fill_page_data, memset, round_page_down};
 
 use bytes::Bytes;
 use std::cmp::min;
@@ -23,11 +23,11 @@ pub struct SparseMemory<R> {
     _inner: PhantomData<R>,
 }
 
-impl<R> SparseMemory<R> {
+impl<R: Register> SparseMemory<R> {
     fn fetch_page(&mut self, aligned_addr: u64) -> Result<&mut Page, Error> {
         let page = aligned_addr / RISCV_PAGESIZE as u64;
         if page >= self.riscv_pages as u64 {
-            return Err(Error::MemOutOfBound);
+            return Err(Error::MemOutOfBound(aligned_addr, OutOfBoundKind::Memory));
         }
         let mut index = self.indices[page as usize];
         if index == INVALID_PAGE_INDEX {
@@ -70,13 +70,8 @@ impl<R> SparseMemory<R> {
 impl<R: Register> Memory for SparseMemory<R> {
     type REG = R;
 
-    fn new() -> Self {
-        Self::new_with_memory(RISCV_MAX_MEMORY)
-    }
-
-    fn new_with_memory(memory_size: usize) -> Self {
-        assert!(memory_size <= RISCV_MAX_MEMORY);
-        assert!(memory_size % RISCV_PAGESIZE == 0);
+    fn new(memory_size: usize) -> Self {
+        assert!(memory_size.is_multiple_of(RISCV_PAGESIZE));
         Self {
             indices: vec![INVALID_PAGE_INDEX; memory_size / RISCV_PAGESIZE],
             pages: Vec::new(),
@@ -103,7 +98,10 @@ impl<R: Register> Memory for SparseMemory<R> {
         if page < self.riscv_pages as u64 {
             Ok(self.flags[page as usize])
         } else {
-            Err(Error::MemOutOfBound)
+            Err(Error::MemOutOfBound(
+                page << RISCV_PAGE_SHIFTS,
+                OutOfBoundKind::Memory,
+            ))
         }
     }
 
@@ -112,7 +110,10 @@ impl<R: Register> Memory for SparseMemory<R> {
             self.flags[page as usize] |= flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound)
+            Err(Error::MemOutOfBound(
+                page << RISCV_PAGE_SHIFTS,
+                OutOfBoundKind::Memory,
+            ))
         }
     }
 
@@ -121,7 +122,10 @@ impl<R: Register> Memory for SparseMemory<R> {
             self.flags[page as usize] &= !flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound)
+            Err(Error::MemOutOfBound(
+                page << RISCV_PAGE_SHIFTS,
+                OutOfBoundKind::Memory,
+            ))
         }
     }
 
@@ -203,9 +207,7 @@ impl<R: Register> Memory for SparseMemory<R> {
         if size == 0 {
             return Ok(Bytes::new());
         }
-        if addr.checked_add(size).ok_or(Error::MemOutOfBound)? > self.memory_size() as u64 {
-            return Err(Error::MemOutOfBound);
-        }
+        check_no_overflow(addr, size, self.memory_size() as u64)?;
         let mut current_page_addr = round_page_down(addr);
         let mut current_page_offset = addr - current_page_addr;
         let mut need_read_len = size;

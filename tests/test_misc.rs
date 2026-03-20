@@ -1,22 +1,23 @@
 use ckb_vm::cost_model::constant_cycles;
-use ckb_vm::machine::VERSION0;
+use ckb_vm::error::OutOfBoundKind;
+use ckb_vm::machine::{VERSION0, VERSION1, VERSION2};
 use ckb_vm::registers::{A0, A1, A2, A3, A4, A5, A7};
 use ckb_vm::{
-    run, CoreMachine, Debugger, DefaultCoreMachine, DefaultMachineBuilder, Error, FlatMemory,
-    Memory, Register, SparseMemory, SupportMachine, Syscalls, WXorXMemory, ISA_IMC,
-    RISCV_MAX_MEMORY, RISCV_PAGESIZE,
+    CoreMachine, DEFAULT_MEMORY_SIZE, Debugger, DefaultCoreMachine, DefaultMachineRunner, Error,
+    FlatMemory, ISA_B, ISA_IMC, Memory, RISCV_PAGESIZE, Register, RustDefaultMachineBuilder,
+    SparseMemory, SupportMachine, Syscalls, WXorXMemory, rng, run,
 };
 #[cfg(has_asm)]
 use ckb_vm_definitions::asm::AsmCoreMachine;
-use rand::{thread_rng, Rng};
 use std::fs;
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
+pub mod machine_build;
 
 #[test]
 pub fn test_andi() {
     let buffer = fs::read("tests/programs/andi").unwrap().into();
-    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["andi".into()], RISCV_MAX_MEMORY);
+    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["andi".into()]);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 }
@@ -24,7 +25,7 @@ pub fn test_andi() {
 #[test]
 pub fn test_nop() {
     let buffer = fs::read("tests/programs/nop").unwrap().into();
-    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["nop".into()], RISCV_MAX_MEMORY);
+    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["nop".into()]);
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), 0);
 }
@@ -56,12 +57,12 @@ impl<Mac: SupportMachine> Syscalls<Mac> for CustomSyscall {
 pub fn test_custom_syscall() {
     let buffer = fs::read("tests/programs/syscall64").unwrap().into();
     let core_machine =
-        DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, u64::max_value());
-    let mut machine = DefaultMachineBuilder::new(core_machine)
+        DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, u64::MAX);
+    let mut machine = RustDefaultMachineBuilder::new(core_machine)
         .syscall(Box::new(CustomSyscall {}))
         .build();
     machine
-        .load_program(&buffer, &vec!["syscall".into()])
+        .load_program(&buffer, [Ok("syscall".into())].into_iter())
         .unwrap();
     let result = machine.run();
     assert!(result.is_ok());
@@ -89,14 +90,14 @@ pub fn test_ebreak() {
     let buffer = fs::read("tests/programs/ebreak64").unwrap().into();
     let value = Arc::new(AtomicU8::new(0));
     let core_machine =
-        DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, u64::max_value());
-    let mut machine = DefaultMachineBuilder::new(core_machine)
+        DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, u64::MAX);
+    let mut machine = RustDefaultMachineBuilder::new(core_machine)
         .debugger(Box::new(CustomDebugger {
             value: Arc::clone(&value),
         }))
         .build();
     machine
-        .load_program(&buffer, &vec!["ebreak".into()])
+        .load_program(&buffer, [Ok("ebreak".into())].into_iter())
         .unwrap();
     assert_eq!(value.load(Ordering::Relaxed), 1);
     let result = machine.run();
@@ -107,31 +108,30 @@ pub fn test_ebreak() {
 #[test]
 pub fn test_trace() {
     let buffer = fs::read("tests/programs/trace64").unwrap().into();
-    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["trace64".into()], RISCV_MAX_MEMORY);
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["trace64".into()]);
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage));
+    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage(16)));
 }
 
 #[test]
 pub fn test_jump0() {
     let buffer = fs::read("tests/programs/jump0_64").unwrap().into();
-    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["jump0_64".into()], RISCV_MAX_MEMORY);
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["jump0_64".into()]);
     assert!(result.is_err());
-    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage));
+    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage(0)));
 }
 
 #[test]
 pub fn test_misaligned_jump64() {
     let buffer = fs::read("tests/programs/misaligned_jump64").unwrap().into();
-    let result =
-        run::<u64, SparseMemory<u64>>(&buffer, &vec!["misaligned_jump64".into()], RISCV_MAX_MEMORY);
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["misaligned_jump64".into()]);
     assert!(result.is_ok());
 }
 
 #[test]
 pub fn test_mulw64() {
     let buffer = fs::read("tests/programs/mulw64").unwrap().into();
-    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["mulw64".into()], RISCV_MAX_MEMORY);
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["mulw64".into()]);
     assert!(result.is_ok());
 }
 
@@ -140,12 +140,11 @@ pub fn test_invalid_file_offset64() {
     let buffer = fs::read("tests/programs/invalid_file_offset64")
         .unwrap()
         .into();
-    let result = run::<u64, SparseMemory<u64>>(
-        &buffer,
-        &vec!["invalid_file_offset64".into()],
-        RISCV_MAX_MEMORY,
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["invalid_file_offset64".into()]);
+    assert_eq!(
+        result.err(),
+        Some(Error::ElfSegmentAddrOrSizeError(0x10000))
     );
-    assert_eq!(result.err(), Some(Error::ElfSegmentAddrOrSizeError));
 }
 
 #[test]
@@ -154,12 +153,8 @@ pub fn test_op_rvc_srli_crash_32() {
     let buffer = fs::read("tests/programs/op_rvc_srli_crash_32")
         .unwrap()
         .into();
-    let result = run::<u32, SparseMemory<u32>>(
-        &buffer,
-        &vec!["op_rvc_srli_crash_32".into()],
-        RISCV_MAX_MEMORY,
-    );
-    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage));
+    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["op_rvc_srli_crash_32".into()]);
+    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage(0)));
 }
 
 #[test]
@@ -168,11 +163,7 @@ pub fn test_op_rvc_srai_crash_32() {
     let buffer = fs::read("tests/programs/op_rvc_srai_crash_32")
         .unwrap()
         .into();
-    let result = run::<u32, SparseMemory<u32>>(
-        &buffer,
-        &vec!["op_rvc_srai_crash_32".into()],
-        RISCV_MAX_MEMORY,
-    );
+    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["op_rvc_srai_crash_32".into()]);
     assert!(result.is_ok());
 }
 
@@ -182,47 +173,53 @@ pub fn test_op_rvc_slli_crash_32() {
     let buffer = fs::read("tests/programs/op_rvc_slli_crash_32")
         .unwrap()
         .into();
-    let result = run::<u32, SparseMemory<u32>>(
-        &buffer,
-        &vec!["op_rvc_slli_crash_32".into()],
-        RISCV_MAX_MEMORY,
-    );
+    let result = run::<u32, SparseMemory<u32>>(&buffer, &vec!["op_rvc_slli_crash_32".into()]);
     assert!(result.is_ok());
 }
 
 #[test]
 pub fn test_load_elf_crash_64() {
     let buffer = fs::read("tests/programs/load_elf_crash_64").unwrap().into();
-    let result =
-        run::<u64, SparseMemory<u64>>(&buffer, &vec!["load_elf_crash_64".into()], RISCV_MAX_MEMORY);
-    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage));
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["load_elf_crash_64".into()]);
+    assert_eq!(result.err(), Some(Error::MemWriteOnExecutablePage(16)));
 }
 
 #[test]
 pub fn test_wxorx_crash_64() {
     let buffer = fs::read("tests/programs/wxorx_crash_64").unwrap().into();
-    let result =
-        run::<u64, SparseMemory<u64>>(&buffer, &vec!["wxorx_crash_64".into()], RISCV_MAX_MEMORY);
-    assert_eq!(result.err(), Some(Error::MemOutOfBound));
+    let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["wxorx_crash_64".into()]);
+    assert_eq!(
+        result.err(),
+        Some(Error::MemOutOfBound(
+            0xffffffffffffffff,
+            OutOfBoundKind::Memory
+        ))
+    );
 }
 
 #[test]
 pub fn test_flat_crash_64() {
     let buffer = fs::read("tests/programs/flat_crash_64").unwrap().into();
-    let core_machine =
-        DefaultCoreMachine::<u64, FlatMemory<u64>>::new(ISA_IMC, VERSION0, u64::max_value());
-    let mut machine = DefaultMachineBuilder::new(core_machine).build();
-    let result = machine.load_program(&buffer, &vec!["flat_crash_64".into()]);
-    assert_eq!(result.err(), Some(Error::MemOutOfBound));
+    let core_machine = DefaultCoreMachine::<u64, FlatMemory<u64>>::new(ISA_IMC, VERSION0, u64::MAX);
+    let mut machine = RustDefaultMachineBuilder::new(core_machine).build();
+    let result = machine.load_program(&buffer, [Ok("flat_crash_64".into())].into_iter());
+    assert_eq!(
+        result.err(),
+        Some(Error::MemOutOfBound(0x1100000000, OutOfBoundKind::Memory))
+    );
 }
 
 #[test]
 pub fn test_memory_store_empty_bytes() {
-    assert_memory_store_empty_bytes(&mut FlatMemory::<u64>::new());
-    assert_memory_store_empty_bytes(&mut SparseMemory::<u64>::new());
-    assert_memory_store_empty_bytes(&mut WXorXMemory::<FlatMemory<u64>>::new());
+    assert_memory_store_empty_bytes(&mut FlatMemory::<u64>::new(DEFAULT_MEMORY_SIZE));
+    assert_memory_store_empty_bytes(&mut SparseMemory::<u64>::new(DEFAULT_MEMORY_SIZE));
+    assert_memory_store_empty_bytes(&mut WXorXMemory::<FlatMemory<u64>>::new(
+        DEFAULT_MEMORY_SIZE,
+    ));
     #[cfg(has_asm)]
-    assert_memory_store_empty_bytes(&mut AsmCoreMachine::new(ISA_IMC, VERSION0, 200_000));
+    assert_memory_store_empty_bytes(&mut <AsmCoreMachine as SupportMachine>::new(
+        ISA_IMC, VERSION0, 200_000,
+    ));
 }
 
 fn assert_memory_store_empty_bytes<M: Memory>(memory: &mut M) {
@@ -232,35 +229,30 @@ fn assert_memory_store_empty_bytes<M: Memory>(memory: &mut M) {
 
 #[test]
 pub fn test_memory_load_bytes() {
-    let mut rng = thread_rng();
+    let mut rng = rng::Rand::new(0x12345678);
 
-    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 1024 * 5, 0);
-    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 1024 * 5, 2);
-    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 1024 * 5, 1024 * 6);
-    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 0, 0);
+    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 1024 * 5, 0);
+    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 1024 * 5, 2);
+    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 1024 * 5, 1024 * 6);
+    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 0, 0);
 }
 
-fn assert_memory_load_bytes_all<R: Rng>(
-    rng: &mut R,
+fn assert_memory_load_bytes_all(
+    rng: &mut rng::Rand,
     max_memory: usize,
     buf_size: usize,
     addr: u64,
 ) {
     assert_memory_load_bytes(
         rng,
-        &mut SparseMemory::<u64>::new_with_memory(max_memory),
+        &mut SparseMemory::<u64>::new(max_memory),
         buf_size,
         addr,
     );
+    assert_memory_load_bytes(rng, &mut FlatMemory::<u64>::new(max_memory), buf_size, addr);
     assert_memory_load_bytes(
         rng,
-        &mut FlatMemory::<u64>::new_with_memory(max_memory),
-        buf_size,
-        addr,
-    );
-    assert_memory_load_bytes(
-        rng,
-        &mut WXorXMemory::<FlatMemory<u64>>::new_with_memory(max_memory),
+        &mut WXorXMemory::<FlatMemory<u64>>::new(max_memory),
         buf_size,
         addr,
     );
@@ -268,14 +260,14 @@ fn assert_memory_load_bytes_all<R: Rng>(
     #[cfg(has_asm)]
     assert_memory_load_bytes(
         rng,
-        &mut AsmCoreMachine::new(ISA_IMC, VERSION0, 200_000),
+        &mut <AsmCoreMachine as SupportMachine>::new(ISA_IMC, VERSION0, 200_000),
         buf_size,
         addr,
     );
 }
 
-fn assert_memory_load_bytes<R: Rng, M: Memory>(
-    rng: &mut R,
+fn assert_memory_load_bytes<M: Memory>(
+    rng: &mut rng::Rand,
     memory: &mut M,
     buffer_size: usize,
     addr: u64,
@@ -303,7 +295,13 @@ fn assert_memory_load_bytes<R: Rng, M: Memory>(
     };
     let ret = memory.load_bytes(addr, outofbound_size as u64);
     assert!(ret.is_err());
-    assert_eq!(ret.err().unwrap(), Error::MemOutOfBound);
+    // TODO: For randomized tests, the exact address violating memory out of bound
+    // error, is hard to derive(and will also heavily depend on implementation logic),
+    // do we really need to assert the exact value causing out-of-bound error here?
+    assert!(match ret.unwrap_err() {
+        Error::MemOutOfBound(_, kind) => kind == OutOfBoundKind::Memory,
+        _ => false,
+    });
 
     // address out of bound
     let ret = memory.load_bytes(
@@ -314,7 +312,10 @@ fn assert_memory_load_bytes<R: Rng, M: Memory>(
         assert!(ret.is_ok())
     } else {
         assert!(ret.is_err());
-        assert_eq!(ret.err().unwrap(), Error::MemOutOfBound);
+        assert!(match ret.unwrap_err() {
+            Error::MemOutOfBound(_, kind) => kind == OutOfBoundKind::Memory,
+            _ => false,
+        });
     }
 
     // addr + size is overflow
@@ -323,7 +324,10 @@ fn assert_memory_load_bytes<R: Rng, M: Memory>(
         assert!(ret.is_ok());
     } else {
         assert!(ret.is_err());
-        assert_eq!(ret.err().unwrap(), Error::MemOutOfBound);
+        assert!(match ret.unwrap_err() {
+            Error::MemOutOfBound(_, kind) => kind == OutOfBoundKind::Memory,
+            _ => false,
+        });
     }
 }
 
@@ -360,10 +364,10 @@ pub fn test_rvc_pageend() {
     // The last instruction of a executable memory page is an RVC instruction.
     let buffer = fs::read("tests/programs/rvc_pageend").unwrap().into();
     let core_machine =
-        DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, u64::max_value());
-    let mut machine = DefaultMachineBuilder::new(core_machine).build();
+        DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, u64::MAX);
+    let mut machine = RustDefaultMachineBuilder::new(core_machine).build();
     machine
-        .load_program(&buffer, &vec!["rvc_end".into()])
+        .load_program(&buffer, [Ok("rvc_end".into())].into_iter())
         .unwrap();
 
     let anchor_pc: u64 = 69630;
@@ -412,16 +416,65 @@ impl<Mac: SupportMachine> Syscalls<Mac> for OutOfCyclesSyscall {
 pub fn test_outofcycles_in_syscall() {
     let buffer = fs::read("tests/programs/syscall64").unwrap().into();
     let core_machine = DefaultCoreMachine::<u64, SparseMemory<u64>>::new(ISA_IMC, VERSION0, 20);
-    let mut machine = DefaultMachineBuilder::new(core_machine)
+    let mut machine = RustDefaultMachineBuilder::new(core_machine)
         .instruction_cycle_func(Box::new(constant_cycles))
         .syscall(Box::new(OutOfCyclesSyscall {}))
         .build();
     machine
-        .load_program(&buffer, &vec!["syscall".into()])
+        .load_program(&buffer, [Ok("syscall".into())].into_iter())
         .unwrap();
     let result = machine.run();
     assert!(result.is_err());
     assert_eq!(result.unwrap_err(), Error::CyclesExceeded);
     assert_eq!(machine.cycles(), 108);
     assert_eq!(machine.registers()[A0], 39);
+}
+
+#[test]
+pub fn test_clang() {
+    {
+        let mut machine = machine_build::int(
+            "tests/programs/clang_sample",
+            vec![],
+            VERSION1,
+            ISA_IMC | ISA_B,
+        );
+        let ret = machine.run();
+        assert!(ret.is_ok());
+    }
+
+    #[cfg(has_asm)]
+    {
+        let mut machine_asm = machine_build::asm(
+            "tests/programs/clang_sample",
+            vec![],
+            VERSION1,
+            ISA_IMC | ISA_B,
+        );
+        let ret_asm = machine_asm.run();
+        assert!(ret_asm.is_ok());
+    }
+
+    {
+        let mut machine = machine_build::int(
+            "tests/programs/clang_sample",
+            vec![],
+            VERSION2,
+            ISA_IMC | ISA_B,
+        );
+        let ret = machine.run();
+        assert!(ret.is_ok());
+    }
+
+    #[cfg(has_asm)]
+    {
+        let mut machine_asm = machine_build::asm(
+            "tests/programs/clang_sample",
+            vec![],
+            VERSION2,
+            ISA_IMC | ISA_B,
+        );
+        let ret_asm = machine_asm.run();
+        assert!(ret_asm.is_ok());
+    }
 }

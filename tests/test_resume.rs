@@ -2,12 +2,15 @@
 pub mod machine_build;
 use bytes::Bytes;
 use ckb_vm::cost_model::constant_cycles;
-use ckb_vm::machine::asm::{AsmCoreMachine, AsmMachine};
+use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
 use ckb_vm::machine::trace::TraceMachine;
-use ckb_vm::machine::{DefaultCoreMachine, DefaultMachine, SupportMachine, VERSION0, VERSION1};
+use ckb_vm::machine::{
+    DefaultCoreMachine, DefaultMachine, DefaultMachineRunner, SupportMachine, VERSION0, VERSION1,
+    VERSION2,
+};
 use ckb_vm::memory::{sparse::SparseMemory, wxorx::WXorXMemory};
-use ckb_vm::snapshot::{make_snapshot, resume, Snapshot};
-use ckb_vm::{DefaultMachineBuilder, Error, ISA_IMC};
+use ckb_vm::snapshot::{Snapshot, make_snapshot, resume};
+use ckb_vm::{Error, ISA_A, ISA_IMC, RustDefaultMachineBuilder};
 use std::fs::File;
 use std::io::Read;
 
@@ -53,7 +56,7 @@ pub fn resume_asm_2_asm(version: u32, except_cycles: u64) {
     // The cycles required for complete execution is 4194622
     let mut machine1 = MachineTy::Asm.build(version, except_cycles - 30);
     machine1
-        .load_program(&buffer, &vec!["alloc_many".into()])
+        .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
         .unwrap();
     let result1 = machine1.run();
     let cycles1 = machine1.cycles();
@@ -75,7 +78,7 @@ pub fn resume_asm_2_asm_2_asm(version: u32, except_cycles: u64) {
 
     let mut machine1 = MachineTy::Asm.build(version, 1000000);
     machine1
-        .load_program(&buffer, &vec!["alloc_many".into()])
+        .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
         .unwrap();
     let result1 = machine1.run();
     let cycles1 = machine1.cycles();
@@ -105,7 +108,7 @@ pub fn resume_asm_2_interpreter(version: u32, except_cycles: u64) {
 
     let mut machine1 = MachineTy::Asm.build(version, except_cycles - 30);
     machine1
-        .load_program(&buffer, &vec!["alloc_many".into()])
+        .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
         .unwrap();
     let result1 = machine1.run();
     let cycles1 = machine1.cycles();
@@ -128,7 +131,7 @@ pub fn resume_interpreter_2_interpreter(version: u32, except_cycles: u64) {
 
     let mut machine1 = MachineTy::Interpreter.build(version, except_cycles - 30);
     machine1
-        .load_program(&buffer, &vec!["alloc_many".into()])
+        .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
         .unwrap();
     let result1 = machine1.run();
     let cycles1 = machine1.cycles();
@@ -150,7 +153,7 @@ pub fn resume_interpreter_2_asm(version: u32, except_cycles: u64) {
 
     let mut machine1 = MachineTy::Interpreter.build(version, except_cycles - 30);
     machine1
-        .load_program(&buffer, &vec!["alloc_many".into()])
+        .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
         .unwrap();
     let result1 = machine1.run();
     let cycles1 = machine1.cycles();
@@ -172,7 +175,7 @@ pub fn resume_interpreter_with_trace_2_asm_inner(version: u32, except_cycles: u6
 
     let mut machine1 = MachineTy::InterpreterWithTrace.build(version, except_cycles - 30);
     machine1
-        .load_program(&buffer, &vec!["alloc_many".into()])
+        .load_program(&buffer, [Ok("alloc_many".into())].into_iter())
         .unwrap();
     let result1 = machine1.run();
     let cycles1 = machine1.cycles();
@@ -206,8 +209,9 @@ impl MachineTy {
     fn build(self, version: u32, max_cycles: u64) -> Machine {
         match self {
             MachineTy::Asm => {
-                let asm_core1 = AsmCoreMachine::new(ISA_IMC, version, max_cycles);
-                let core1 = DefaultMachineBuilder::<Box<AsmCoreMachine>>::new(asm_core1)
+                let asm_core1 =
+                    <AsmCoreMachine as SupportMachine>::new(ISA_IMC, version, max_cycles);
+                let core1 = AsmDefaultMachineBuilder::new(asm_core1)
                     .instruction_cycle_func(Box::new(constant_cycles))
                     .build();
                 Machine::Asm(AsmMachine::new(core1))
@@ -217,9 +221,9 @@ impl MachineTy {
                     ISA_IMC, version, max_cycles,
                 );
                 Machine::Interpreter(
-                    DefaultMachineBuilder::<DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>>::new(
-                        core_machine1,
-                    )
+                    RustDefaultMachineBuilder::<
+                        DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>,
+                    >::new(core_machine1)
                     .instruction_cycle_func(Box::new(constant_cycles))
                     .build(),
                 )
@@ -228,15 +232,13 @@ impl MachineTy {
                 let core_machine1 = DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
                     ISA_IMC, version, max_cycles,
                 );
-                Machine::InterpreterWithTrace(
-                    TraceMachine::new(
-                        DefaultMachineBuilder::<
-                            DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>,
-                        >::new(core_machine1)
-                        .instruction_cycle_func(Box::new(constant_cycles))
-                        .build(),
-                    ),
-                )
+                Machine::InterpreterWithTrace(TraceMachine::new(
+                    RustDefaultMachineBuilder::<
+                        DefaultCoreMachine<u64, WXorXMemory<SparseMemory<u64>>>,
+                    >::new(core_machine1)
+                    .instruction_cycle_func(Box::new(constant_cycles))
+                    .build(),
+                ))
             }
         }
     }
@@ -249,7 +251,11 @@ enum Machine {
 }
 
 impl Machine {
-    fn load_program(&mut self, program: &Bytes, args: &[Bytes]) -> Result<u64, Error> {
+    fn load_program(
+        &mut self,
+        program: &Bytes,
+        args: impl ExactSizeIterator<Item = Result<Bytes, Error>>,
+    ) -> Result<u64, Error> {
         use Machine::*;
         match self {
             Asm(inner) => inner.load_program(program, args),
@@ -293,4 +299,36 @@ impl Machine {
             InterpreterWithTrace(inner) => resume(&mut inner.machine, snap),
         }
     }
+}
+
+#[test]
+pub fn test_sc_after_snapshot() {
+    let mut machine = machine_build::int(
+        "tests/programs/sc_after_snapshot",
+        vec![],
+        VERSION2,
+        ISA_IMC | ISA_A,
+    );
+    machine.machine.set_max_cycles(5);
+    let ret = machine.run();
+    assert!(ret.is_err());
+    assert_eq!(ret.unwrap_err(), Error::CyclesExceeded);
+
+    let snap = make_snapshot(&mut machine).unwrap();
+    let mut machine_new = TraceMachine::new(
+        RustDefaultMachineBuilder::new(
+            DefaultCoreMachine::<u64, WXorXMemory<SparseMemory<u64>>>::new(
+                ISA_IMC | ISA_A,
+                VERSION2,
+                u64::MAX,
+            ),
+        )
+        .instruction_cycle_func(Box::new(constant_cycles))
+        .build(),
+    );
+    resume(&mut machine_new, &snap).unwrap();
+    machine_new.machine.set_max_cycles(20);
+    let ret = machine_new.run();
+    assert!(ret.is_ok());
+    assert_eq!(ret.unwrap(), 0);
 }

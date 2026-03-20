@@ -44,6 +44,7 @@ pub enum SignActionOp2 {
 
 #[derive(Debug, Clone)]
 pub enum Value {
+    Lr,
     Imm(u64),
     Register(usize),
     Op1(ActionOp1, Rc<Value>),
@@ -51,6 +52,7 @@ pub enum Value {
     SignOp2(SignActionOp2, Rc<Value>, Rc<Value>, bool),
     Cond(Rc<Value>, Rc<Value>, Rc<Value>),
     Load(Rc<Value>, u8),
+    External(Rc<Value>, u64),
 }
 
 impl Default for Value {
@@ -147,11 +149,11 @@ impl Register for Value {
     }
 
     fn min_value() -> Value {
-        Value::Imm(u64::min_value())
+        Value::Imm(u64::MIN)
     }
 
     fn max_value() -> Value {
-        Value::Imm(u64::max_value())
+        Value::Imm(u64::MAX)
     }
 
     fn eq(&self, other: &Value) -> Value {

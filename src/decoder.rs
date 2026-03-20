@@ -1,18 +1,25 @@
 use ckb_vm_definitions::instructions::{self as insts};
 use ckb_vm_definitions::registers::{RA, ZERO};
 
+use crate::error::OutOfBoundKind;
 use crate::instructions::{
-    a, b, extract_opcode, i, instruction_length, m, rvc, set_instruction_length_n, Instruction,
-    InstructionFactory, Itype, R4type, R5type, Register, Rtype, Utype,
+    Instruction, InstructionFactory, Itype, R4type, R5type, Register, Rtype, Utype, a, b,
+    extract_opcode, i, instruction_length, m, rvc, set_instruction_length_n,
 };
 use crate::machine::VERSION2;
 use crate::memory::Memory;
-use crate::{Error, ISA_A, ISA_B, ISA_MOP, RISCV_MAX_MEMORY, RISCV_PAGESIZE};
+use crate::{Error, ISA_A, ISA_B, ISA_MOP, RISCV_PAGESIZE};
 
 const RISCV_PAGESIZE_MASK: u64 = RISCV_PAGESIZE as u64 - 1;
 const INSTRUCTION_CACHE_SIZE: usize = 4096;
 
-pub struct Decoder {
+pub trait InstDecoder {
+    fn new<R: Register>(isa: u8, version: u32) -> Self;
+    fn decode<M: Memory>(&mut self, memory: &mut M, pc: u64) -> Result<Instruction, Error>;
+    fn reset_instructions_cache(&mut self) -> Result<(), Error>;
+}
+
+pub struct DefaultDecoder {
     factories: Vec<InstructionFactory>,
     mop: bool,
     version: u32,
@@ -20,13 +27,14 @@ pub struct Decoder {
     instructions_cache: [(u64, u64); INSTRUCTION_CACHE_SIZE],
 }
 
-impl Decoder {
-    pub fn new(mop: bool, version: u32) -> Decoder {
-        Decoder {
+impl DefaultDecoder {
+    /// Creates an empty decoder with no instruction factory
+    pub fn empty(mop: bool, version: u32) -> Self {
+        Self {
             factories: vec![],
             mop,
             version,
-            instructions_cache: [(RISCV_MAX_MEMORY as u64, 0); INSTRUCTION_CACHE_SIZE],
+            instructions_cache: [(u64::MAX, 0); INSTRUCTION_CACHE_SIZE],
         }
     }
 
@@ -87,9 +95,10 @@ impl Decoder {
     }
 
     pub fn decode_raw<M: Memory>(&mut self, memory: &mut M, pc: u64) -> Result<Instruction, Error> {
-        // since we are using RISCV_MAX_MEMORY as the default key in the instruction cache, have to check out of bound error first
-        if pc as usize >= RISCV_MAX_MEMORY {
-            return Err(Error::MemOutOfBound);
+        // since we are using u64::MAX as the default key in the instruction cache, have to check out of bound
+        // error first.
+        if pc as usize >= memory.memory_size() {
+            return Err(Error::MemOutOfBound(pc, OutOfBoundKind::Memory));
         }
         let instruction_cache_key = {
             // according to RISC-V instruction encoding, the lowest bit in PC will always be zero
@@ -847,8 +856,24 @@ impl Decoder {
             _ => Ok(head_instruction),
         }
     }
+}
 
-    pub fn decode<M: Memory>(&mut self, memory: &mut M, pc: u64) -> Result<Instruction, Error> {
+impl InstDecoder for DefaultDecoder {
+    fn new<R: Register>(isa: u8, version: u32) -> Self {
+        let mut decoder = Self::empty(isa & ISA_MOP != 0, version);
+        decoder.add_instruction_factory(rvc::factory::<R>);
+        decoder.add_instruction_factory(i::factory::<R>);
+        decoder.add_instruction_factory(m::factory::<R>);
+        if isa & ISA_B != 0 {
+            decoder.add_instruction_factory(b::factory::<R>);
+        }
+        if isa & ISA_A != 0 {
+            decoder.add_instruction_factory(a::factory::<R>);
+        }
+        decoder
+    }
+
+    fn decode<M: Memory>(&mut self, memory: &mut M, pc: u64) -> Result<Instruction, Error> {
         if self.mop {
             self.decode_mop(memory, pc)
         } else {
@@ -856,21 +881,8 @@ impl Decoder {
         }
     }
 
-    pub fn reset_instructions_cache(&mut self) {
-        self.instructions_cache = [(RISCV_MAX_MEMORY as u64, 0); INSTRUCTION_CACHE_SIZE];
+    fn reset_instructions_cache(&mut self) -> Result<(), Error> {
+        self.instructions_cache = [(u64::MAX, 0); INSTRUCTION_CACHE_SIZE];
+        Ok(())
     }
-}
-
-pub fn build_decoder<R: Register>(isa: u8, version: u32) -> Decoder {
-    let mut decoder = Decoder::new(isa & ISA_MOP != 0, version);
-    decoder.add_instruction_factory(rvc::factory::<R>);
-    decoder.add_instruction_factory(i::factory::<R>);
-    decoder.add_instruction_factory(m::factory::<R>);
-    if isa & ISA_B != 0 {
-        decoder.add_instruction_factory(b::factory::<R>);
-    }
-    if isa & ISA_A != 0 {
-        decoder.add_instruction_factory(a::factory::<R>);
-    }
-    decoder
 }

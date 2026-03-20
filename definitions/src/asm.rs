@@ -1,8 +1,5 @@
-use crate::{
-    instructions::Instruction, MEMORY_FRAMES, MEMORY_FRAMESIZE, MEMORY_FRAME_SHIFTS,
-    RISCV_GENERAL_REGISTER_NUMBER, RISCV_MAX_MEMORY, RISCV_PAGES, RISCV_PAGESIZE,
-};
-use std::alloc::{alloc, Layout};
+use crate::{RISCV_GENERAL_REGISTER_NUMBER, instructions::Instruction};
+use std::alloc::{Layout, dealloc};
 
 // The number of trace items to keep
 pub const TRACE_SIZE: usize = 8192;
@@ -17,27 +14,65 @@ pub const RET_CYCLES_OVERFLOW: u8 = 6;
 pub const RET_OUT_OF_BOUND: u8 = 7;
 pub const RET_INVALID_PERMISSION: u8 = 8;
 pub const RET_SLOWPATH: u8 = 9;
+pub const RET_PAUSE: u8 = 10;
 
 #[inline(always)]
 pub fn calculate_slot(addr: u64) -> usize {
     (addr as usize >> 2) & (TRACE_SIZE - 1)
 }
 
-#[derive(Default)]
 #[repr(C)]
-pub struct Trace {
+#[derive(Clone, Debug)]
+pub struct FixedTrace {
     pub address: u64,
-    pub length: u8,
+    pub length: u32,
     pub cycles: u64,
-    pub instructions: [Instruction; TRACE_ITEM_LENGTH + 1],
     // We are using direct threaded code here:
     // https://en.wikipedia.org/wiki/Threaded_code
-    pub thread: [u64; TRACE_ITEM_LENGTH + 1],
+    // each individual thread is made of 2 consecutive
+    // items here: the jumping offset, and the actual decoded
+    // instructions. Since we will use both of them as plain
+    // u64 values anyway in the assembly code, we cast the
+    // Instruction type to u64. A test case will ensure that
+    // Instruction type stays the same as u64 type.
+    pub _threads: [u64; 2 * (TRACE_ITEM_LENGTH + 1)],
 }
 
-// Although the memory here is an array, but when it is created,
-//  its size is allocated through memory_size, and its maximum length RISCV_MAX_MEMORY
-//  is used in the structure declaration.
+impl FixedTrace {
+    pub fn thread(&self, idx: usize) -> Option<(Instruction, u64)> {
+        if idx < TRACE_ITEM_LENGTH + 1 {
+            Some((self._threads[idx * 2 + 1], self._threads[idx * 2]))
+        } else {
+            None
+        }
+    }
+
+    pub fn set_thread(&mut self, idx: usize, instruction: Instruction, thread: u64) {
+        if idx < TRACE_ITEM_LENGTH + 1 {
+            self._threads[idx * 2] = thread;
+            self._threads[idx * 2 + 1] = instruction;
+        }
+    }
+}
+
+impl Default for FixedTrace {
+    fn default() -> Self {
+        FixedTrace {
+            address: 0,
+            length: 0,
+            cycles: 0,
+            _threads: [0; 2 * (TRACE_ITEM_LENGTH + 1)],
+        }
+    }
+}
+
+#[repr(C)]
+pub struct InvokeData {
+    pub pause: *mut u8,
+    pub fixed_traces: *const FixedTrace,
+    pub fixed_trace_mask: u64,
+}
+
 #[repr(C)]
 pub struct AsmCoreMachine {
     pub registers: [u64; RISCV_GENERAL_REGISTER_NUMBER],
@@ -53,6 +88,8 @@ pub struct AsmCoreMachine {
     pub isa: u8,
     pub version: u32,
 
+    pub error_arg0: u64,
+
     pub memory_size: u64,
     pub frames_size: u64,
     pub flags_size: u64,
@@ -60,64 +97,38 @@ pub struct AsmCoreMachine {
     pub last_read_frame: u64,
     pub last_write_page: u64,
 
-    pub flags: [u8; RISCV_PAGES],
-    pub frames: [u8; MEMORY_FRAMES],
-    pub traces: [Trace; TRACE_SIZE],
+    pub memory_ptr: u64,
+    pub flags_ptr: u64,
+    pub frames_ptr: u64,
+}
 
-    pub memory: [u8; RISCV_MAX_MEMORY],
+impl Drop for AsmCoreMachine {
+    fn drop(&mut self) {
+        let memory_layout = Layout::array::<u8>(self.memory_size as usize).unwrap();
+        unsafe { dealloc(self.memory_ptr as *mut u8, memory_layout) };
+        let flags_layout = Layout::array::<u8>(self.flags_size as usize).unwrap();
+        unsafe { dealloc(self.flags_ptr as *mut u8, flags_layout) };
+        let frames_layout = Layout::array::<u8>(self.frames_size as usize).unwrap();
+        unsafe { dealloc(self.frames_ptr as *mut u8, frames_layout) };
+    }
 }
 
 impl AsmCoreMachine {
-    pub fn new(isa: u8, version: u32, max_cycles: u64) -> Box<AsmCoreMachine> {
-        Self::new_with_memory(isa, version, max_cycles, RISCV_MAX_MEMORY)
+    pub fn set_max_cycles(&mut self, cycles: u64) {
+        self.max_cycles = cycles;
     }
+}
 
-    pub fn new_with_memory(
-        isa: u8,
-        version: u32,
-        max_cycles: u64,
-        memory_size: usize,
-    ) -> Box<AsmCoreMachine> {
-        assert_ne!(memory_size, 0);
-        assert_eq!(memory_size % RISCV_PAGESIZE, 0);
-        assert_eq!(memory_size % (1 << MEMORY_FRAME_SHIFTS), 0);
+impl AsRef<AsmCoreMachine> for AsmCoreMachine {
+    #[inline(always)]
+    fn as_ref(&self) -> &AsmCoreMachine {
+        self
+    }
+}
 
-        let mut machine = unsafe {
-            let machine_size =
-                std::mem::size_of::<AsmCoreMachine>() - RISCV_MAX_MEMORY + memory_size;
-
-            let layout = Layout::array::<u8>(machine_size).unwrap();
-            let raw_allocation = alloc(layout) as *mut AsmCoreMachine;
-            Box::from_raw(raw_allocation)
-        };
-        machine.registers = [0; RISCV_GENERAL_REGISTER_NUMBER];
-        machine.pc = 0;
-        machine.next_pc = 0;
-        machine.running = 0;
-        machine.cycles = 0;
-        machine.max_cycles = max_cycles;
-        if cfg!(feature = "enable-chaos-mode-by-default") {
-            machine.chaos_mode = 1;
-        } else {
-            machine.chaos_mode = 0;
-        }
-        machine.chaos_seed = 0;
-        machine.reset_signal = 0;
-        machine.version = version;
-        machine.isa = isa;
-        machine.flags = [0; RISCV_PAGES];
-        for i in 0..TRACE_SIZE {
-            machine.traces[i] = Trace::default();
-        }
-        machine.frames = [0; MEMORY_FRAMES];
-
-        machine.memory_size = memory_size as u64;
-        machine.frames_size = (memory_size / MEMORY_FRAMESIZE) as u64;
-        machine.flags_size = (memory_size / RISCV_PAGESIZE) as u64;
-
-        machine.last_read_frame = u64::max_value();
-        machine.last_write_page = u64::max_value();
-
-        machine
+impl AsMut<AsmCoreMachine> for AsmCoreMachine {
+    #[inline(always)]
+    fn as_mut(&mut self) -> &mut AsmCoreMachine {
+        self
     }
 }

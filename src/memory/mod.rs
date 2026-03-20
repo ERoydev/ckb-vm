@@ -1,6 +1,7 @@
 use super::{
+    Error, RISCV_PAGESIZE, Register,
     bits::{rounddown, roundup},
-    Error, Register, RISCV_PAGESIZE,
+    error::OutOfBoundKind,
 };
 use bytes::Bytes;
 use std::cmp::min;
@@ -11,8 +12,8 @@ pub mod sparse;
 pub mod wxorx;
 
 pub use ckb_vm_definitions::{
+    DEFAULT_MEMORY_SIZE, MEMORY_FRAME_PAGE_SHIFTS, RISCV_PAGE_SHIFTS,
     memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, FLAG_WXORX_BIT},
-    MEMORY_FRAME_PAGE_SHIFTS, RISCV_MAX_MEMORY, RISCV_PAGE_SHIFTS,
 };
 
 #[inline(always)]
@@ -30,8 +31,8 @@ pub type Page = [u8; RISCV_PAGESIZE];
 pub trait Memory {
     type REG: Register;
 
-    fn new() -> Self;
-    fn new_with_memory(memory_size: usize) -> Self;
+    fn new(memory_size: usize) -> Self;
+
     fn init_pages(
         &mut self,
         addr: u64,
@@ -44,6 +45,9 @@ pub trait Memory {
     fn set_flag(&mut self, page: u64, flag: u8) -> Result<(), Error>;
     fn clear_flag(&mut self, page: u64, flag: u8) -> Result<(), Error>;
     fn memory_size(&self) -> usize;
+    fn memory_pages(&self) -> usize {
+        self.memory_size() >> RISCV_PAGE_SHIFTS
+    }
 
     // This is in fact just memset
     fn store_byte(&mut self, addr: u64, size: u64, value: u8) -> Result<(), Error>;
@@ -97,18 +101,25 @@ pub fn fill_page_data<M: Memory>(
     Ok(())
 }
 
-// `size` should be none zero u64
-pub fn get_page_indices(addr: u64, size: u64) -> Result<(u64, u64), Error> {
+pub fn check_no_overflow(addr: u64, size: u64, memory_size: u64) -> Result<(), Error> {
+    if addr >= memory_size {
+        return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+    }
     let (addr_end, overflowed) = addr.overflowing_add(size);
-    if overflowed {
-        return Err(Error::MemOutOfBound);
+    if overflowed || addr_end > memory_size {
+        Err(Error::MemOutOfBound(addr_end, OutOfBoundKind::Memory))
+    } else {
+        Ok(())
     }
-    if addr_end > RISCV_MAX_MEMORY as u64 {
-        return Err(Error::MemOutOfBound);
-    }
+}
+
+// `size` should be none zero u64
+pub fn get_page_indices(addr: u64, size: u64) -> (u64, u64) {
+    debug_assert!(size > 0);
+    let addr_end = addr.wrapping_add(size);
     let page = addr >> RISCV_PAGE_SHIFTS;
     let page_end = (addr_end - 1) >> RISCV_PAGE_SHIFTS;
-    Ok((page, page_end))
+    (page, page_end)
 }
 
 pub fn check_permission<M: Memory>(
@@ -119,7 +130,7 @@ pub fn check_permission<M: Memory>(
     for page in page_indices.0..=page_indices.1 {
         let page_flag = memory.fetch_flag(page)?;
         if (page_flag & FLAG_WXORX_BIT) != (flag & FLAG_WXORX_BIT) {
-            return Err(Error::MemWriteOnExecutablePage);
+            return Err(Error::MemWriteOnExecutablePage(page));
         }
     }
     Ok(())
@@ -134,9 +145,26 @@ pub fn set_dirty<M: Memory>(memory: &mut M, page_indices: &(u64, u64)) -> Result
 
 // Keep this in a central place to allow for future optimization
 #[inline(always)]
-pub fn memset(slice: &mut [u8], value: u8) {
+pub(crate) fn memset(slice: &mut [u8], value: u8) {
     let p = slice.as_mut_ptr();
     unsafe {
         ptr::write_bytes(p, value, slice.len());
     }
+}
+
+pub fn load_c_string_byte_by_byte<M: Memory>(
+    memory: &mut M,
+    addr: &M::REG,
+) -> Result<Bytes, Error> {
+    let mut buffer = Vec::new();
+    let mut addr = addr.clone();
+    loop {
+        let byte = memory.load8(&addr)?.to_u8();
+        if byte == 0 {
+            break;
+        }
+        buffer.push(byte);
+        addr = addr.overflowing_add(&M::REG::from_u8(1));
+    }
+    Ok(Bytes::from(buffer))
 }

@@ -1,12 +1,14 @@
 use super::{
     super::{
-        decoder::build_decoder,
-        instructions::{
-            execute, instruction_length, is_basic_block_end_instruction, Instruction, Register,
-        },
         Error,
+        decoder::{DefaultDecoder, InstDecoder},
+        elf::ProgramMetadata,
+        instructions::{
+            Instruction, Register, Thread, ThreadFactory, execute_with_thread, extract_opcode,
+            handle_invalid_op, instruction_length, is_basic_block_end_instruction,
+        },
     },
-    CoreMachine, DefaultMachine, Machine, SupportMachine,
+    CoreMachine, DefaultMachine, DefaultMachineRunner, Machine, SupportMachine, VERSION2,
 };
 use bytes::Bytes;
 
@@ -19,12 +21,24 @@ const TRACE_ITEM_LENGTH: usize = 16;
 // Shifts to truncate a value so 2 traces has the minimal chance of sharing code.
 const TRACE_ADDRESS_SHIFTS: usize = 2;
 
-#[derive(Default)]
-struct Trace {
+struct Trace<Inner: Machine> {
     address: u64,
     length: usize,
     instruction_count: u8,
     instructions: [Instruction; TRACE_ITEM_LENGTH],
+    threads: [Thread<Inner>; TRACE_ITEM_LENGTH],
+}
+
+impl<Inner: Machine> Default for Trace<Inner> {
+    fn default() -> Self {
+        Trace {
+            address: 0,
+            length: 0,
+            instruction_count: 0,
+            instructions: [0; TRACE_ITEM_LENGTH],
+            threads: [handle_invalid_op::<Inner>; TRACE_ITEM_LENGTH],
+        }
+    }
 }
 
 #[inline(always)]
@@ -32,13 +46,16 @@ fn calculate_slot(addr: u64) -> usize {
     (addr as usize >> TRACE_ADDRESS_SHIFTS) & TRACE_MASK
 }
 
-pub struct TraceMachine<Inner> {
-    pub machine: DefaultMachine<Inner>,
+pub type TraceMachine<Inner> = AbstractTraceMachine<Inner, DefaultDecoder>;
 
-    traces: Vec<Trace>,
+pub struct AbstractTraceMachine<Inner: SupportMachine, Decoder> {
+    pub machine: DefaultMachine<Inner, Decoder>,
+
+    factory: ThreadFactory<DefaultMachine<Inner, Decoder>>,
+    traces: Vec<Trace<DefaultMachine<Inner, Decoder>>>,
 }
 
-impl<Inner: SupportMachine> CoreMachine for TraceMachine<Inner> {
+impl<Inner: SupportMachine, Decoder> CoreMachine for AbstractTraceMachine<Inner, Decoder> {
     type REG = <Inner as CoreMachine>::REG;
     type MEM = <Inner as CoreMachine>::MEM;
 
@@ -79,7 +96,7 @@ impl<Inner: SupportMachine> CoreMachine for TraceMachine<Inner> {
     }
 }
 
-impl<Inner: SupportMachine> Machine for TraceMachine<Inner> {
+impl<Inner: SupportMachine, Decoder> Machine for AbstractTraceMachine<Inner, Decoder> {
     fn ecall(&mut self) -> Result<(), Error> {
         self.machine.ecall()
     }
@@ -89,35 +106,54 @@ impl<Inner: SupportMachine> Machine for TraceMachine<Inner> {
     }
 }
 
-impl<Inner: SupportMachine> TraceMachine<Inner> {
-    pub fn new(machine: DefaultMachine<Inner>) -> Self {
+impl<Inner: SupportMachine, Decoder: InstDecoder> DefaultMachineRunner
+    for AbstractTraceMachine<Inner, Decoder>
+{
+    type Inner = Inner;
+    type Decoder = Decoder;
+
+    fn new(machine: DefaultMachine<Inner, Decoder>) -> Self {
         Self {
             machine,
+            factory: ThreadFactory::create(),
             traces: vec![],
         }
     }
 
-    pub fn load_program(&mut self, program: &Bytes, args: &[Bytes]) -> Result<u64, Error> {
-        self.machine.load_program(program, args)
+    fn machine(&self) -> &DefaultMachine<Inner, Decoder> {
+        &self.machine
     }
 
-    pub fn run(&mut self) -> Result<i8, Error> {
-        let mut decoder = build_decoder::<Inner::REG>(self.isa(), self.version());
+    fn machine_mut(&mut self) -> &mut DefaultMachine<Inner, Decoder> {
+        &mut self.machine
+    }
+
+    fn run_with_decoder(&mut self, decoder: &mut Self::Decoder) -> Result<i8, Error> {
         self.machine.set_running(true);
         // For current trace size this is acceptable, however we might want
         // to tweak the code here if we choose to use a larger trace size or
         // larger trace item length.
         self.traces.resize_with(TRACE_SIZE, Trace::default);
         while self.machine.running() {
+            if self.machine.pause.has_interrupted() {
+                self.machine.pause.free();
+                return Err(Error::Pause);
+            }
             if self.machine.reset_signal() {
-                decoder.reset_instructions_cache();
+                decoder.reset_instructions_cache()?;
                 for i in self.traces.iter_mut() {
                     *i = Trace::default()
                 }
             }
             let pc = self.machine.pc().to_u64();
             let slot = calculate_slot(pc);
-            if pc != self.traces[slot].address || self.traces[slot].instruction_count == 0 {
+            // This is to replicate a bug in x64 VM
+            let address_match = if self.machine.version() < VERSION2 {
+                (pc as u32 as u64) == self.traces[slot].address
+            } else {
+                pc == self.traces[slot].address
+            };
+            if (!address_match) || self.traces[slot].instruction_count == 0 {
                 self.traces[slot] = Trace::default();
                 let mut current_pc = pc;
                 let mut i = 0;
@@ -126,6 +162,7 @@ impl<Inner: SupportMachine> TraceMachine<Inner> {
                     let end_instruction = is_basic_block_end_instruction(instruction);
                     current_pc += u64::from(instruction_length(instruction));
                     self.traces[slot].instructions[i] = instruction;
+                    self.traces[slot].threads[i] = self.factory[extract_opcode(instruction)];
                     i += 1;
                     if end_instruction {
                         break;
@@ -136,13 +173,41 @@ impl<Inner: SupportMachine> TraceMachine<Inner> {
                 self.traces[slot].instruction_count = i as u8;
             }
             for i in 0..self.traces[slot].instruction_count {
-                let i = self.traces[slot].instructions[i as usize];
-                let cycles = self.machine.instruction_cycle_func()(i);
+                let inst = self.traces[slot].instructions[i as usize];
+                let cycles = self.machine.instruction_cycle_func()(inst);
                 self.machine.add_cycles(cycles)?;
-                execute(i, self)?;
+                execute_with_thread(
+                    inst,
+                    &mut self.machine,
+                    &self.traces[slot].threads[i as usize],
+                )?;
             }
         }
         Ok(self.machine.exit_code())
+    }
+}
+
+impl<Inner: SupportMachine, Decoder> AbstractTraceMachine<Inner, Decoder> {
+    pub fn load_program(
+        &mut self,
+        program: &Bytes,
+        args: impl ExactSizeIterator<Item = Result<Bytes, Error>>,
+    ) -> Result<u64, Error> {
+        self.machine.load_program(program, args)
+    }
+
+    pub fn load_program_with_metadata(
+        &mut self,
+        program: &Bytes,
+        metadata: &ProgramMetadata,
+        args: impl ExactSizeIterator<Item = Result<Bytes, Error>>,
+    ) -> Result<u64, Error> {
+        self.machine
+            .load_program_with_metadata(program, metadata, args)
+    }
+
+    pub fn set_max_cycles(&mut self, cycles: u64) {
+        self.machine.inner_mut().set_max_cycles(cycles)
     }
 }
 
