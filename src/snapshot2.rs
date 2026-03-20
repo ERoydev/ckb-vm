@@ -1,9 +1,9 @@
 use crate::{
+    Error, RISCV_GENERAL_REGISTER_NUMBER, RISCV_PAGESIZE, Register,
     bits::roundup,
     elf::{LoadingAction, ProgramMetadata},
     machine::SupportMachine,
-    memory::{get_page_indices, Memory, FLAG_DIRTY},
-    Error, Register, RISCV_GENERAL_REGISTER_NUMBER, RISCV_PAGESIZE,
+    memory::{FLAG_DIRTY, Memory, get_page_indices},
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
@@ -68,11 +68,13 @@ impl<I: Clone + PartialEq, D: DataSource<I>> Snapshot2Context<I, D> {
         machine.set_max_cycles(snapshot.max_cycles);
         for (address, flag, id, offset, length) in &snapshot.pages_from_source {
             if address % PAGE_SIZE != 0 {
-                return Err(Error::MemPageUnalignedAccess);
+                return Err(Error::MemPageUnalignedAccess(*address));
             }
             let (data, _) = self.load_data(id, *offset, *length)?;
-            if data.len() as u64 % PAGE_SIZE != 0 {
-                return Err(Error::MemPageUnalignedAccess);
+            if !(data.len() as u64).is_multiple_of(PAGE_SIZE) {
+                return Err(Error::MemPageUnalignedAccess(
+                    address.wrapping_add(data.len() as u64),
+                ));
             }
             machine.memory_mut().store_bytes(*address, &data)?;
             for i in 0..(data.len() as u64 / PAGE_SIZE) {
@@ -83,10 +85,12 @@ impl<I: Clone + PartialEq, D: DataSource<I>> Snapshot2Context<I, D> {
         }
         for (address, flag, content) in &snapshot.dirty_pages {
             if address % PAGE_SIZE != 0 {
-                return Err(Error::MemPageUnalignedAccess);
+                return Err(Error::MemPageUnalignedAccess(*address));
             }
-            if content.len() as u64 % PAGE_SIZE != 0 {
-                return Err(Error::MemPageUnalignedAccess);
+            if !(content.len() as u64).is_multiple_of(PAGE_SIZE) {
+                return Err(Error::MemPageUnalignedAccess(
+                    address.wrapping_add(content.len() as u64),
+                ));
             }
             machine.memory_mut().store_bytes(*address, content)?;
             for i in 0..(content.len() as u64 / PAGE_SIZE) {
@@ -233,7 +237,7 @@ impl<I: Clone + PartialEq, D: DataSource<I>> Snapshot2Context<I, D> {
         self.track_pages(machine, start, length, id, offset + action.source.start)
     }
 
-    /// The followings are only made public for advanced usages, but make sure to exercise more
+    /// The following are only made public for advanced usages, but make sure to exercise more
     /// cautions when calling it!
     pub fn track_pages<M: SupportMachine>(
         &mut self,
@@ -271,7 +275,7 @@ impl<I: Clone + PartialEq, D: DataSource<I>> Snapshot2Context<I, D> {
         if length == 0 {
             return Ok(());
         }
-        let page_indices = get_page_indices(start, length)?;
+        let page_indices = get_page_indices(start, length);
         for page in page_indices.0..=page_indices.1 {
             machine.memory_mut().set_flag(page, FLAG_DIRTY)?;
             self.pages.remove(&page);

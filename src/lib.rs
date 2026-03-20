@@ -10,6 +10,7 @@ pub mod error;
 pub mod instructions;
 pub mod machine;
 pub mod memory;
+pub mod rng;
 pub mod snapshot;
 pub mod snapshot2;
 pub mod syscalls;
@@ -21,35 +22,38 @@ pub use crate::{
     debugger::Debugger,
     instructions::{Instruction, Register},
     machine::{
-        trace::TraceMachine, CoreMachine, DefaultCoreMachine, DefaultMachine,
-        DefaultMachineBuilder, DefaultMachineRunner, FlattenedArgsReader, InstructionCycleFunc,
-        Machine, SupportMachine,
+        CoreMachine, DefaultCoreMachine, DefaultMachine, DefaultMachineRunner, FlattenedArgsReader,
+        InstructionCycleFunc, Machine, RustDefaultMachineBuilder, SupportMachine,
+        trace::TraceMachine,
     },
-    memory::{flat::FlatMemory, sparse::SparseMemory, wxorx::WXorXMemory, Memory},
+    memory::{Memory, flat::FlatMemory, sparse::SparseMemory, wxorx::WXorXMemory},
     syscalls::Syscalls,
 };
 pub use bytes::Bytes;
 
 pub use ckb_vm_definitions::{
-    registers, DEFAULT_STACK_SIZE, ISA_A, ISA_B, ISA_IMC, ISA_MOP, MEMORY_FRAMES, MEMORY_FRAMESIZE,
-    MEMORY_FRAME_SHIFTS, RISCV_GENERAL_REGISTER_NUMBER, RISCV_MAX_MEMORY, RISCV_PAGES,
-    RISCV_PAGESIZE, RISCV_PAGE_SHIFTS,
+    DEFAULT_MEMORY_SIZE, ISA_A, ISA_B, ISA_IMC, ISA_MOP, MEMORY_FRAME_SHIFTS, MEMORY_FRAMESIZE,
+    RISCV_GENERAL_REGISTER_NUMBER, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, registers,
 };
 
 pub use error::Error;
 
-pub fn run<R: Register, M: Memory<REG = R>>(
+pub fn run<R: Register, M: Memory<REG = R>>(program: &Bytes, args: &[Bytes]) -> Result<i8, Error> {
+    run_with_memory::<R, M>(program, args, DEFAULT_MEMORY_SIZE)
+}
+
+pub fn run_with_memory<R: Register, M: Memory<REG = R>>(
     program: &Bytes,
     args: &[Bytes],
     memory_size: usize,
 ) -> Result<i8, Error> {
     let core_machine = DefaultCoreMachine::<R, WXorXMemory<M>>::new_with_memory(
-        ISA_IMC | ISA_A | ISA_B | ISA_MOP,
+        ISA_IMC | ISA_B | ISA_MOP,
         machine::VERSION2,
         u64::MAX,
         memory_size,
     );
-    let mut machine = TraceMachine::new(DefaultMachineBuilder::new(core_machine).build());
+    let mut machine = TraceMachine::new(RustDefaultMachineBuilder::new(core_machine).build());
     machine.load_program(program, args.iter().map(|e| Ok(e.clone())))?;
     machine.run()
 }
@@ -60,7 +64,7 @@ mod tests {
 
     #[test]
     fn test_max_memory_must_be_multiple_of_pages() {
-        assert_eq!(RISCV_MAX_MEMORY % RISCV_PAGESIZE, 0);
+        assert_eq!(DEFAULT_MEMORY_SIZE % RISCV_PAGESIZE, 0);
     }
 
     #[test]
