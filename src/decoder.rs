@@ -38,7 +38,7 @@ impl DefaultDecoder {
             factories: vec![],
             mop,
             version,
-            instructions_cache: [(u64::MAX, 0); INSTRUCTION_CACHE_SIZE],
+            instructions_cache: vec![(u64::MAX, 0); INSTRUCTION_CACHE_SIZE],
         }
     }
 
@@ -886,7 +886,7 @@ impl InstDecoder for DefaultDecoder {
     }
 
     fn reset_instructions_cache(&mut self) -> Result<(), Error> {
-        self.instructions_cache = [(u64::MAX, 0); INSTRUCTION_CACHE_SIZE];
+        self.instructions_cache = vec![(u64::MAX, 0); INSTRUCTION_CACHE_SIZE];
         Ok(())
     }
 }
