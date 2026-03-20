@@ -17,7 +17,9 @@ default = []
 asm = []
 # Detect if requirements are met, and enable asm feature when we can.
 detect-asm = []
-enable-chaos-mode-by-default = ["ckb-vm-definitions/enable-chaos-mode-by-default"]
+enable-chaos-mode-by-default = [
+    "ckb-vm-definitions/enable-chaos-mode-by-default",
+]
 # Disable slow tests to run miri on CI
 miri-ci = []
 pprof = []
@@ -29,7 +31,7 @@ goblin_v023 = { package = "goblin", version = "=0.2.3" }
 goblin_v040 = { package = "goblin", version = "=0.4.0" }
 scroll = "0.10"
 serde = { version = "1.0", features = ["derive"] }
-ckb-vm-definitions = { path = "definitions", version = "=0.24.0" }
+ckb-vm-definitions = { path = "definitions", version = "=0.24.14" }
 derive_more = { version = "1", features = ["full"] }
 
 [build-dependencies]
