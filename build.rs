@@ -56,6 +56,11 @@ fn main() {
                 build.flag("-march=rv64im");
                 // explicitly specify the ABI to avoid issues, even though it's the default value in GCC
                 build.flag("-mabi=lp64");
+            } else if target.contains("zero") {
+                let home = env::var("HOME").unwrap();
+                build.compiler(format!("{}/.zeroos/musl/bin/riscv64-linux-musl-gcc", home));
+                build.flag("-march=rv64imac");
+                build.flag("-mabi=lp64");
             }
             build.file("src/machine/asm/execute_riscv64.S");
         }
