@@ -5,7 +5,7 @@ version = "0.24.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-rust-version = "1.92.0"
+rust-version = "1.88.0"
 build = "build.rs"
 exclude = ["/benches", "/tests"]
 homepage = "https://github.com/nervosnetwork/ckb-vm"
@@ -17,7 +17,9 @@ default = []
 asm = []
 # Detect if requirements are met, and enable asm feature when we can.
 detect-asm = []
-enable-chaos-mode-by-default = ["ckb-vm-definitions/enable-chaos-mode-by-default"]
+enable-chaos-mode-by-default = [
+    "ckb-vm-definitions/enable-chaos-mode-by-default",
+]
 # Disable slow tests to run miri on CI
 miri-ci = []
 pprof = []
