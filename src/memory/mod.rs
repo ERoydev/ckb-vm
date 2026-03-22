@@ -1,7 +1,6 @@
 use super::{
     Error, RISCV_PAGESIZE, Register,
     bits::{rounddown, roundup},
-    error::OutOfBoundKind,
 };
 use bytes::Bytes;
 use std::cmp::min;
@@ -12,7 +11,7 @@ pub mod sparse;
 pub mod wxorx;
 
 pub use ckb_vm_definitions::{
-    DEFAULT_MEMORY_SIZE, MEMORY_FRAME_PAGE_SHIFTS, RISCV_PAGE_SHIFTS,
+    MEMORY_FRAME_PAGE_SHIFTS, RISCV_MAX_MEMORY, RISCV_PAGE_SHIFTS,
     memory::{FLAG_DIRTY, FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, FLAG_WXORX_BIT},
 };
 
@@ -103,11 +102,11 @@ pub fn fill_page_data<M: Memory>(
 
 pub fn check_no_overflow(addr: u64, size: u64, memory_size: u64) -> Result<(), Error> {
     if addr >= memory_size {
-        return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+        return Err(Error::MemOutOfBound);
     }
     let (addr_end, overflowed) = addr.overflowing_add(size);
     if overflowed || addr_end > memory_size {
-        Err(Error::MemOutOfBound(addr_end, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     } else {
         Ok(())
     }

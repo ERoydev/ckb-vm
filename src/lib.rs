@@ -23,7 +23,8 @@ pub use crate::{
     instructions::{Instruction, Register},
     machine::{
         CoreMachine, DefaultCoreMachine, DefaultMachine, DefaultMachineRunner, FlattenedArgsReader,
-        InstructionCycleFunc, Machine, RustDefaultMachineBuilder, SupportMachine,
+        DefaultMachineBuilder, InstructionCycleFunc, Machine, RustDefaultMachineBuilder,
+        SupportMachine,
         trace::TraceMachine,
     },
     memory::{Memory, flat::FlatMemory, sparse::SparseMemory, wxorx::WXorXMemory},
@@ -32,14 +33,15 @@ pub use crate::{
 pub use bytes::Bytes;
 
 pub use ckb_vm_definitions::{
-    DEFAULT_MEMORY_SIZE, ISA_A, ISA_B, ISA_IMC, ISA_MOP, MEMORY_FRAME_SHIFTS, MEMORY_FRAMESIZE,
-    RISCV_GENERAL_REGISTER_NUMBER, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, registers,
+    DEFAULT_STACK_SIZE, ISA_A, ISA_B, ISA_IMC, ISA_MOP, MEMORY_FRAMES, MEMORY_FRAMESIZE,
+    MEMORY_FRAME_SHIFTS, RISCV_GENERAL_REGISTER_NUMBER, RISCV_MAX_MEMORY, RISCV_PAGES,
+    RISCV_PAGESIZE, RISCV_PAGE_SHIFTS, registers,
 };
 
 pub use error::Error;
 
 pub fn run<R: Register, M: Memory<REG = R>>(program: &Bytes, args: &[Bytes]) -> Result<i8, Error> {
-    run_with_memory::<R, M>(program, args, DEFAULT_MEMORY_SIZE)
+    run_with_memory::<R, M>(program, args, RISCV_MAX_MEMORY)
 }
 
 pub fn run_with_memory<R: Register, M: Memory<REG = R>>(
@@ -64,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_max_memory_must_be_multiple_of_pages() {
-        assert_eq!(DEFAULT_MEMORY_SIZE % RISCV_PAGESIZE, 0);
+        assert_eq!(RISCV_MAX_MEMORY % RISCV_PAGESIZE, 0);
     }
 
     #[test]

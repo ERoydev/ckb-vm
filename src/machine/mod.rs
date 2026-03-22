@@ -16,7 +16,7 @@ use super::instructions::{Instruction, Register, execute};
 use super::memory::{Memory, load_c_string_byte_by_byte};
 use super::syscalls::Syscalls;
 use super::{
-    DEFAULT_MEMORY_SIZE, Error, ISA_MOP, RISCV_GENERAL_REGISTER_NUMBER,
+    RISCV_MAX_MEMORY, Error, ISA_MOP, RISCV_GENERAL_REGISTER_NUMBER,
     registers::{A0, A7, REGISTER_ABI_NAMES, SP},
 };
 
@@ -68,7 +68,7 @@ pub trait SupportMachine: CoreMachine {
     where
         Self: Sized,
     {
-        Self::new_with_memory(isa, version, max_cycles, DEFAULT_MEMORY_SIZE)
+        Self::new_with_memory(isa, version, max_cycles, RISCV_MAX_MEMORY)
     }
 
     /// Instantiation function
@@ -773,6 +773,9 @@ impl<Inner: SupportMachine, Decoder> DefaultMachine<Inner, Decoder> {
 
 /// This builder only works with Rust VMs
 pub type RustDefaultMachineBuilder<Inner> = AbstractDefaultMachineBuilder<Inner, DefaultDecoder>;
+
+/// Backwards-compatible alias for crates.io ckb-vm 0.24.14 API
+pub type DefaultMachineBuilder<Inner> = RustDefaultMachineBuilder<Inner>;
 
 pub struct AbstractDefaultMachineBuilder<Inner, Decoder> {
     inner: Inner,

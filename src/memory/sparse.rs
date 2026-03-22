@@ -1,4 +1,4 @@
-use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
+use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register};
 use super::{FLAG_DIRTY, Memory, Page, check_no_overflow, fill_page_data, memset, round_page_down};
 
 use bytes::Bytes;
@@ -27,7 +27,7 @@ impl<R: Register> SparseMemory<R> {
     fn fetch_page(&mut self, aligned_addr: u64) -> Result<&mut Page, Error> {
         let page = aligned_addr / RISCV_PAGESIZE as u64;
         if page >= self.riscv_pages as u64 {
-            return Err(Error::MemOutOfBound(aligned_addr, OutOfBoundKind::Memory));
+            return Err(Error::MemOutOfBound);
         }
         let mut index = self.indices[page as usize];
         if index == INVALID_PAGE_INDEX {
@@ -98,10 +98,7 @@ impl<R: Register> Memory for SparseMemory<R> {
         if page < self.riscv_pages as u64 {
             Ok(self.flags[page as usize])
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -110,10 +107,7 @@ impl<R: Register> Memory for SparseMemory<R> {
             self.flags[page as usize] |= flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -122,10 +116,7 @@ impl<R: Register> Memory for SparseMemory<R> {
             self.flags[page as usize] &= !flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 

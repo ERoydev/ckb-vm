@@ -1,7 +1,6 @@
 #![cfg(has_asm)]
 use ckb_vm::cost_model::constant_cycles;
 use ckb_vm::decoder::InstDecoder;
-use ckb_vm::error::OutOfBoundKind;
 use ckb_vm::machine::asm::traces::SimpleFixedTraceDecoder;
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
 use ckb_vm::machine::{CoreMachine, VERSION0, VERSION1, VERSION2};
@@ -182,7 +181,7 @@ pub fn test_asm_write_large_address() {
     assert!(result.is_err());
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(0xffffff00, OutOfBoundKind::Memory))
+        Some(Error::MemOutOfBound)
     );
 }
 
@@ -226,10 +225,7 @@ pub fn test_invalid_read64() {
     assert!(result.is_err());
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(
-            0xffffffffffffffff,
-            OutOfBoundKind::Memory
-        ))
+        Some(Error::MemOutOfBound)
     );
 }
 
@@ -258,10 +254,7 @@ pub fn test_asm_wxorx_crash_64() {
     let result = machine.run();
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(
-            0xffffffffffffffff,
-            OutOfBoundKind::Memory
-        ))
+        Some(Error::MemOutOfBound)
     );
 }
 
@@ -401,7 +394,7 @@ pub fn test_decoder_instructions_cache_pc_out_of_bound_timeout() {
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err(),
-        Error::MemOutOfBound(0x400000, OutOfBoundKind::Memory)
+        Error::MemOutOfBound
     );
 }
 
@@ -473,7 +466,7 @@ pub fn test_big_binary() {
     let result = machine.load_program(&buffer, [Ok("simple".into())].into_iter());
     assert_eq!(
         result,
-        Err(Error::MemOutOfBound(0x111000, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
 }
 

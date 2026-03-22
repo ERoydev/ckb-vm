@@ -1,4 +1,4 @@
-use super::super::{Error, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
+use super::super::{Error, RISCV_PAGESIZE, Register};
 use super::{
     FLAG_EXECUTABLE, FLAG_FREEZED, FLAG_WRITABLE, Memory, check_no_overflow, check_permission,
     get_page_indices, round_page_down, round_page_up,
@@ -41,19 +41,13 @@ impl<M: Memory> Memory for WXorXMemory<M> {
         }
 
         if addr > self.memory_size() as u64 {
-            return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+            return Err(Error::MemOutOfBound);
         }
         if size > self.memory_size() as u64 || addr + size > self.memory_size() as u64 {
-            return Err(Error::MemOutOfBound(
-                addr.wrapping_add(size),
-                OutOfBoundKind::Memory,
-            ));
+            return Err(Error::MemOutOfBound);
         }
         if offset_from_addr > size {
-            return Err(Error::MemOutOfBound(
-                offset_from_addr,
-                OutOfBoundKind::ExternalData,
-            ));
+            return Err(Error::MemOutOfBound);
         }
         for page_addr in (addr..addr + size).step_by(RISCV_PAGESIZE) {
             let page = page_addr / RISCV_PAGESIZE as u64;

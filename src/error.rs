@@ -33,8 +33,8 @@ pub enum Error {
         kind: std::io::ErrorKind,
         data: String,
     },
-    #[display("memory error: out of bound addr=0x{_0:x}, kind={_1:?}")]
-    MemOutOfBound(u64, OutOfBoundKind),
+    #[display("memory error: out of bound")]
+    MemOutOfBound,
     #[display("memory error: out of stack")]
     MemOutOfStack,
     #[display("memory error: unaligned page access addr=0x{_0:x}")]
@@ -51,12 +51,6 @@ pub enum Error {
     Unexpected(String),
     #[display("yield")]
     Yield,
-}
-
-#[derive(Debug, PartialEq, Clone, Eq, Display)]
-pub enum OutOfBoundKind {
-    Memory,
-    ExternalData,
 }
 
 impl std::error::Error for Error {}

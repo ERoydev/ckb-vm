@@ -493,17 +493,17 @@ impl Machine {
     #[cfg(not(feature = "enable-chaos-mode-by-default"))]
     fn full_memory(&mut self) -> Result<Bytes, Error> {
         use Machine::*;
-        use ckb_vm::DEFAULT_MEMORY_SIZE;
+        use ckb_vm::RISCV_MAX_MEMORY;
         match self {
             Asm(inner, _) => inner
                 .machine
                 .memory_mut()
-                .load_bytes(0, DEFAULT_MEMORY_SIZE as u64),
-            Interpreter(inner, _) => inner.memory_mut().load_bytes(0, DEFAULT_MEMORY_SIZE as u64),
+                .load_bytes(0, RISCV_MAX_MEMORY as u64),
+            Interpreter(inner, _) => inner.memory_mut().load_bytes(0, RISCV_MAX_MEMORY as u64),
             InterpreterWithTrace(inner, _) => inner
                 .machine
                 .memory_mut()
-                .load_bytes(0, DEFAULT_MEMORY_SIZE as u64),
+                .load_bytes(0, RISCV_MAX_MEMORY as u64),
         }
     }
 

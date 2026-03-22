@@ -1,9 +1,8 @@
 use ckb_vm::cost_model::constant_cycles;
-use ckb_vm::error::OutOfBoundKind;
 use ckb_vm::machine::{VERSION0, VERSION1, VERSION2};
 use ckb_vm::registers::{A0, A1, A2, A3, A4, A5, A7};
 use ckb_vm::{
-    CoreMachine, DEFAULT_MEMORY_SIZE, Debugger, DefaultCoreMachine, DefaultMachineRunner, Error,
+    CoreMachine, RISCV_MAX_MEMORY, Debugger, DefaultCoreMachine, DefaultMachineRunner, Error,
     FlatMemory, ISA_B, ISA_IMC, Memory, RISCV_PAGESIZE, Register, RustDefaultMachineBuilder,
     SparseMemory, SupportMachine, Syscalls, WXorXMemory, rng, run,
 };
@@ -190,10 +189,7 @@ pub fn test_wxorx_crash_64() {
     let result = run::<u64, SparseMemory<u64>>(&buffer, &vec!["wxorx_crash_64".into()]);
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(
-            0xffffffffffffffff,
-            OutOfBoundKind::Memory
-        ))
+        Some(Error::MemOutOfBound)
     );
 }
 
@@ -205,16 +201,16 @@ pub fn test_flat_crash_64() {
     let result = machine.load_program(&buffer, [Ok("flat_crash_64".into())].into_iter());
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(0x1100000000, OutOfBoundKind::Memory))
+        Some(Error::MemOutOfBound)
     );
 }
 
 #[test]
 pub fn test_memory_store_empty_bytes() {
-    assert_memory_store_empty_bytes(&mut FlatMemory::<u64>::new(DEFAULT_MEMORY_SIZE));
-    assert_memory_store_empty_bytes(&mut SparseMemory::<u64>::new(DEFAULT_MEMORY_SIZE));
+    assert_memory_store_empty_bytes(&mut FlatMemory::<u64>::new(RISCV_MAX_MEMORY));
+    assert_memory_store_empty_bytes(&mut SparseMemory::<u64>::new(RISCV_MAX_MEMORY));
     assert_memory_store_empty_bytes(&mut WXorXMemory::<FlatMemory<u64>>::new(
-        DEFAULT_MEMORY_SIZE,
+        RISCV_MAX_MEMORY,
     ));
     #[cfg(has_asm)]
     assert_memory_store_empty_bytes(&mut <AsmCoreMachine as SupportMachine>::new(
@@ -231,10 +227,10 @@ fn assert_memory_store_empty_bytes<M: Memory>(memory: &mut M) {
 pub fn test_memory_load_bytes() {
     let mut rng = rng::Rand::new(0x12345678);
 
-    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 1024 * 5, 0);
-    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 1024 * 5, 2);
-    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 1024 * 5, 1024 * 6);
-    assert_memory_load_bytes_all(&mut rng, DEFAULT_MEMORY_SIZE, 0, 0);
+    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 1024 * 5, 0);
+    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 1024 * 5, 2);
+    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 1024 * 5, 1024 * 6);
+    assert_memory_load_bytes_all(&mut rng, RISCV_MAX_MEMORY, 0, 0);
 }
 
 fn assert_memory_load_bytes_all(
@@ -299,7 +295,7 @@ fn assert_memory_load_bytes<M: Memory>(
     // error, is hard to derive(and will also heavily depend on implementation logic),
     // do we really need to assert the exact value causing out-of-bound error here?
     assert!(match ret.unwrap_err() {
-        Error::MemOutOfBound(_, kind) => kind == OutOfBoundKind::Memory,
+        Error::MemOutOfBound => true,
         _ => false,
     });
 
@@ -313,7 +309,7 @@ fn assert_memory_load_bytes<M: Memory>(
     } else {
         assert!(ret.is_err());
         assert!(match ret.unwrap_err() {
-            Error::MemOutOfBound(_, kind) => kind == OutOfBoundKind::Memory,
+            Error::MemOutOfBound => true,
             _ => false,
         });
     }
@@ -325,7 +321,7 @@ fn assert_memory_load_bytes<M: Memory>(
     } else {
         assert!(ret.is_err());
         assert!(match ret.unwrap_err() {
-            Error::MemOutOfBound(_, kind) => kind == OutOfBoundKind::Memory,
+            Error::MemOutOfBound => true,
             _ => false,
         });
     }

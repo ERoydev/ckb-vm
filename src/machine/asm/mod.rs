@@ -20,7 +20,6 @@ use crate::{
     CoreMachine, DefaultMachine, DefaultMachineRunner, Error, MEMORY_FRAME_SHIFTS, Machine, Memory,
     RISCV_PAGESIZE, SupportMachine,
     elf::ProgramMetadata,
-    error::OutOfBoundKind,
     instructions::execute_instruction,
     machine::{
         AbstractDefaultMachineBuilder, VERSION0,
@@ -171,7 +170,7 @@ fn check_memory_writable<R: AsmCoreMachineRevealer>(
     debug_assert!(size == 1 || size == 2 || size == 4 || size == 8);
     let page = addr >> RISCV_PAGE_SHIFTS;
     if page as usize >= machine.memory_pages() {
-        return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+        return Err(Error::MemOutOfBound);
     }
     check_permission(machine, page, FLAG_WRITABLE)?;
     check_memory(machine, page);
@@ -182,10 +181,7 @@ fn check_memory_writable<R: AsmCoreMachineRevealer>(
     if page_offset + size > RISCV_PAGESIZE {
         let page = page + 1;
         if page as usize >= machine.memory_pages() {
-            return Err(Error::MemOutOfBound(
-                addr.wrapping_add(size as u64),
-                OutOfBoundKind::Memory,
-            ));
+            return Err(Error::MemOutOfBound);
         } else {
             check_permission(machine, page, FLAG_WRITABLE)?;
             check_memory(machine, page);
@@ -205,7 +201,7 @@ fn check_memory_executable<R: AsmCoreMachineRevealer>(
 
     let page = addr >> RISCV_PAGE_SHIFTS;
     if page as usize >= machine.memory_pages() {
-        return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+        return Err(Error::MemOutOfBound);
     }
     check_permission(machine, page, FLAG_EXECUTABLE)?;
     check_memory(machine, page);
@@ -215,10 +211,7 @@ fn check_memory_executable<R: AsmCoreMachineRevealer>(
     if page_offset + size > RISCV_PAGESIZE {
         let page = page + 1;
         if page as usize >= machine.memory_pages() {
-            return Err(Error::MemOutOfBound(
-                addr.wrapping_add(size as u64),
-                OutOfBoundKind::Memory,
-            ));
+            return Err(Error::MemOutOfBound);
         } else {
             check_permission(machine, page, FLAG_EXECUTABLE)?;
             check_memory(machine, page);
@@ -236,7 +229,7 @@ fn check_memory_inited<R: AsmCoreMachineRevealer>(
     debug_assert!(size == 1 || size == 2 || size == 4 || size == 8);
     let page = addr >> RISCV_PAGE_SHIFTS;
     if page as usize >= machine.memory_pages() {
-        return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+        return Err(Error::MemOutOfBound);
     }
     check_memory(machine, page);
 
@@ -245,10 +238,7 @@ fn check_memory_inited<R: AsmCoreMachineRevealer>(
     if page_offset + size > RISCV_PAGESIZE {
         let page = page + 1;
         if page as usize >= machine.memory_pages() {
-            return Err(Error::MemOutOfBound(
-                addr.wrapping_add(size as u64),
-                OutOfBoundKind::Memory,
-            ));
+            return Err(Error::MemOutOfBound);
         } else {
             check_memory(machine, page);
         }
@@ -426,19 +416,13 @@ where
         }
 
         if addr > self.memory_size() as u64 {
-            return Err(Error::MemOutOfBound(addr, OutOfBoundKind::Memory));
+            return Err(Error::MemOutOfBound);
         }
         if size > self.memory_size() as u64 || addr + size > self.memory_size() as u64 {
-            return Err(Error::MemOutOfBound(
-                addr.wrapping_add(size),
-                OutOfBoundKind::Memory,
-            ));
+            return Err(Error::MemOutOfBound);
         }
         if offset_from_addr > size {
-            return Err(Error::MemOutOfBound(
-                offset_from_addr,
-                OutOfBoundKind::ExternalData,
-            ));
+            return Err(Error::MemOutOfBound);
         }
 
         // We benchmarked the code piece here, using while loop this way is
@@ -476,10 +460,7 @@ where
             let slice = cast_ptr_to_slice(self, self.as_ref().flags_ptr, page as usize, 1);
             Ok(slice[0])
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -491,10 +472,7 @@ where
             self.as_mut().last_write_page = u64::MAX;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -506,10 +484,7 @@ where
             self.as_mut().last_write_page = u64::MAX;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -781,10 +756,7 @@ impl<R: AsmCoreMachineRevealer, D: TraceDecoder> DefaultMachineRunner for Abstra
                 RET_MAX_CYCLES_EXCEEDED => return Err(Error::CyclesExceeded),
                 RET_CYCLES_OVERFLOW => return Err(Error::CyclesOverflow),
                 RET_OUT_OF_BOUND => {
-                    return Err(Error::MemOutOfBound(
-                        self.machine.inner.as_ref().error_arg0,
-                        OutOfBoundKind::Memory,
-                    ));
+                    return Err(Error::MemOutOfBound);
                 }
                 RET_INVALID_PERMISSION => {
                     return Err(Error::MemWriteOnExecutablePage(
@@ -848,10 +820,7 @@ impl<R: AsmCoreMachineRevealer, D: TraceDecoder> AbstractAsmMachine<R, D> {
             RET_EBREAK => self.machine.ebreak()?,
             RET_MAX_CYCLES_EXCEEDED => return Err(Error::CyclesExceeded),
             RET_OUT_OF_BOUND => {
-                return Err(Error::MemOutOfBound(
-                    self.machine.inner.as_ref().error_arg0,
-                    OutOfBoundKind::Memory,
-                ));
+                return Err(Error::MemOutOfBound);
             }
             RET_INVALID_PERMISSION => {
                 return Err(Error::MemWriteOnExecutablePage(

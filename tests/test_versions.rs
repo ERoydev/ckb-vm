@@ -1,6 +1,5 @@
 #![cfg(has_asm)]
 use ckb_vm::cost_model::constant_cycles;
-use ckb_vm::error::OutOfBoundKind;
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
 use ckb_vm::machine::{VERSION0, VERSION1, VERSION2};
 use ckb_vm::memory::{FLAG_DIRTY, FLAG_FREEZED};
@@ -79,7 +78,7 @@ pub fn test_rust_version0_read_at_boundary() {
     assert!(result.is_err());
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(0x400000, OutOfBoundKind::Memory))
+        Some(Error::MemOutOfBound)
     );
 }
 
@@ -178,7 +177,7 @@ pub fn test_asm_version0_read_at_boundary() {
     assert!(result.is_err());
     assert_eq!(
         result.err(),
-        Some(Error::MemOutOfBound(0x400000, OutOfBoundKind::Memory))
+        Some(Error::MemOutOfBound)
     );
 }
 
@@ -376,7 +375,7 @@ pub fn test_asm_version2_asm_trace_bug() {
 
     assert_eq!(
         result,
-        Err(Error::MemOutOfBound(21474836484, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
 }
 
@@ -423,6 +422,6 @@ pub fn test_trace_version2_asm_trace_bug() {
 
     assert_eq!(
         result,
-        Err(Error::MemOutOfBound(21474836484, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
 }

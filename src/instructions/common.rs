@@ -1,4 +1,3 @@
-use super::super::error::OutOfBoundKind;
 use super::super::machine::Machine;
 use super::super::memory::Memory;
 use super::register::Register;
@@ -91,7 +90,7 @@ fn check_load_boundary<R: Register>(
         let address = address.to_u64();
         let (end, overflow) = address.overflowing_add(bytes);
         if overflow || end == memory_size {
-            return Err(Error::MemOutOfBound(end, OutOfBoundKind::Memory));
+            return Err(Error::MemOutOfBound);
         }
     }
     Ok(())

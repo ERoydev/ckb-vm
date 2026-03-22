@@ -1,4 +1,4 @@
-use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
+use super::super::{Error, RISCV_PAGESIZE, Register};
 use super::{Memory, check_no_overflow, fill_page_data, get_page_indices, memset, set_dirty};
 
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -62,10 +62,7 @@ impl<R: Register> Memory for FlatMemory<R> {
         if page < self.riscv_pages as u64 {
             Ok(self.flags[page as usize])
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -74,10 +71,7 @@ impl<R: Register> Memory for FlatMemory<R> {
             self.flags[page as usize] |= flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 
@@ -86,10 +80,7 @@ impl<R: Register> Memory for FlatMemory<R> {
             self.flags[page as usize] &= !flag;
             Ok(())
         } else {
-            Err(Error::MemOutOfBound(
-                page << RISCV_PAGE_SHIFTS,
-                OutOfBoundKind::Memory,
-            ))
+            Err(Error::MemOutOfBound)
         }
     }
 

@@ -1,6 +1,6 @@
 // This example is mainly to test whether there is memory overflow.
 
-use ckb_vm::{Bytes, DEFAULT_MEMORY_SIZE, SparseMemory, run_with_memory};
+use ckb_vm::{Bytes, RISCV_MAX_MEMORY, SparseMemory, run_with_memory};
 
 #[cfg(has_asm)]
 use ckb_vm::{
@@ -82,7 +82,7 @@ fn check_interpreter() -> Result<(), Box<dyn std::error::Error>> {
         let result = run_with_memory::<u64, SparseMemory<u64>>(
             &Bytes::from(BIN_PATH_BUFFER),
             &vec![Bytes::from(BIN_NAME)],
-            DEFAULT_MEMORY_SIZE,
+            RISCV_MAX_MEMORY,
         );
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 0);
@@ -101,7 +101,7 @@ fn check_asm() -> Result<(), Box<dyn std::error::Error>> {
             ISA_IMC,
             VERSION0,
             u64::MAX,
-            DEFAULT_MEMORY_SIZE,
+            RISCV_MAX_MEMORY,
         );
         let core = AsmDefaultMachineBuilder::new(asm_core).build();
         let mut machine = AsmMachine::new(core);

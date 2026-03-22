@@ -1,6 +1,6 @@
 #![no_main]
 use ckb_vm::{
-    Bytes, CoreMachine, DEFAULT_MEMORY_SIZE, ISA_A, ISA_B, ISA_IMC, ISA_MOP, Memory,
+    Bytes, CoreMachine, RISCV_MAX_MEMORY, ISA_A, ISA_B, ISA_IMC, ISA_MOP, Memory,
     RISCV_PAGESIZE, SupportMachine,
     elf::{LoadingAction, ProgramMetadata},
     machine::VERSION2,
@@ -149,7 +149,7 @@ fuzz_target!(|data: [u8; 96]| {
     }
     let snapshot = ctx.make_snapshot(&mut machine1).unwrap();
     ctx.resume(&mut machine2, &snapshot).unwrap();
-    for i in 0..DEFAULT_MEMORY_SIZE / RISCV_PAGESIZE {
+    for i in 0..RISCV_MAX_MEMORY / RISCV_PAGESIZE {
         let mem1 = machine1
             .memory_mut()
             .load_bytes((i * RISCV_PAGESIZE) as u64, RISCV_PAGESIZE as u64)

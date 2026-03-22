@@ -4,7 +4,7 @@ use ckb_vm::cost_model::constant_cycles;
 use ckb_vm::machine::asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine};
 use ckb_vm::machine::{DefaultCoreMachine, RustDefaultMachineBuilder, VERSION1};
 use ckb_vm::{
-    DEFAULT_MEMORY_SIZE, DefaultMachineRunner, Error, ISA_IMC, ISA_MOP, Register, SparseMemory,
+    RISCV_MAX_MEMORY, DefaultMachineRunner, Error, ISA_IMC, ISA_MOP, Register, SparseMemory,
     SupportMachine, Syscalls, TraceMachine, WXorXMemory, registers::A7,
 };
 
@@ -31,8 +31,8 @@ impl<Mac: SupportMachine> Syscalls<Mac> for CustomSyscall {
         machine.load_elf(&code, true).unwrap();
         machine.initialize_stack(
             [].into_iter(),
-            (DEFAULT_MEMORY_SIZE - DEFAULT_MEMORY_SIZE / 4) as u64,
-            (DEFAULT_MEMORY_SIZE / 4) as u64,
+            (RISCV_MAX_MEMORY - RISCV_MAX_MEMORY / 4) as u64,
+            (RISCV_MAX_MEMORY / 4) as u64,
         )?;
         Ok(true)
     }

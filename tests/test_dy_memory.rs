@@ -6,7 +6,7 @@ use ckb_vm::{
         asm::{AsmCoreMachine, AsmDefaultMachineBuilder, AsmMachine},
     },
 };
-use ckb_vm::{FlatMemory, SparseMemory, error::OutOfBoundKind, run_with_memory};
+use ckb_vm::{FlatMemory, SparseMemory, run_with_memory};
 use std::fs;
 
 fn run_memory_suc(memory_size: usize, bin_path: String, bin_name: String) {
@@ -58,7 +58,7 @@ fn test_memory_out_of_bounds() {
         run_with_memory::<u64, SparseMemory<u64>>(&buffer, &vec!["alloc_many".into()], memory_size);
     assert!(result.is_err());
     assert_eq!(
-        ckb_vm::Error::MemOutOfBound(0xfffffffffff3ffb8, OutOfBoundKind::Memory),
+        ckb_vm::Error::MemOutOfBound,
         result.err().unwrap()
     );
 
@@ -66,7 +66,7 @@ fn test_memory_out_of_bounds() {
         run_with_memory::<u64, FlatMemory<u64>>(&buffer, &vec!["alloc_many".into()], memory_size);
     assert!(result.is_err());
     assert_eq!(
-        ckb_vm::Error::MemOutOfBound(0xfffffffffff3ffb8, OutOfBoundKind::Memory),
+        ckb_vm::Error::MemOutOfBound,
         result.err().unwrap()
     );
 
@@ -86,7 +86,7 @@ fn test_memory_out_of_bounds() {
         let result = machine.run();
         assert!(result.is_err());
         assert_eq!(
-            ckb_vm::Error::MemOutOfBound(0xfffffffffff3ffb8, OutOfBoundKind::Memory),
+            ckb_vm::Error::MemOutOfBound,
             result.err().unwrap()
         );
     }

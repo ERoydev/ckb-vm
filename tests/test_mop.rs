@@ -1,5 +1,4 @@
 pub mod machine_build;
-use ckb_vm::error::OutOfBoundKind;
 use ckb_vm::machine::{VERSION1, VERSION2};
 use ckb_vm::{
     CoreMachine, DefaultMachineRunner, Error, ISA_B, ISA_IMC, ISA_MOP, SupportMachine,
@@ -550,10 +549,7 @@ pub fn test_mop_jump_rel_version1_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(
-            0xffffffff8000f878,
-            OutOfBoundKind::Memory
-        ))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(*machine.pc(), 0xffffffff8000f878);
 
@@ -566,7 +562,7 @@ pub fn test_mop_jump_rel_version1_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x8000f878, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(*machine.pc(), 0x8000f878);
 
@@ -579,10 +575,7 @@ pub fn test_mop_jump_rel_version1_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(
-            0xffffffff8000f878,
-            OutOfBoundKind::Memory
-        ))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(*machine.pc(), 0xffffffff8000f878);
 
@@ -597,7 +590,7 @@ pub fn test_mop_jump_rel_version1_bug() {
         let ret_asm = machine_asm.run();
         assert_eq!(
             ret_asm,
-            Err(Error::MemOutOfBound(0x8000f878, OutOfBoundKind::Memory))
+            Err(Error::MemOutOfBound)
         );
         assert_eq!(*machine_asm.machine.pc(), 0x8000f878);
 
@@ -610,10 +603,7 @@ pub fn test_mop_jump_rel_version1_bug() {
         let ret_asm = machine_asm.run();
         assert_eq!(
             ret_asm,
-            Err(Error::MemOutOfBound(
-                0xffffffff8000f878,
-                OutOfBoundKind::Memory
-            ))
+            Err(Error::MemOutOfBound)
         );
         assert_eq!(*machine_asm.machine.pc(), 0xffffffff8000f878);
     }
@@ -630,7 +620,7 @@ pub fn test_mop_jump_rel_version1_reg_not_updated_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x401054a, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(machine.registers()[A0], 67174520);
 
@@ -643,7 +633,7 @@ pub fn test_mop_jump_rel_version1_reg_not_updated_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x401054a, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(machine.registers()[A0], 0);
 
@@ -656,7 +646,7 @@ pub fn test_mop_jump_rel_version1_reg_not_updated_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x401054a, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(machine.registers()[A0], 67174520);
 
@@ -671,7 +661,7 @@ pub fn test_mop_jump_rel_version1_reg_not_updated_bug() {
         let ret_asm = machine_asm.run();
         assert_eq!(
             ret_asm,
-            Err(Error::MemOutOfBound(0x401054a, OutOfBoundKind::Memory))
+            Err(Error::MemOutOfBound)
         );
         assert_eq!(machine_asm.machine.registers()[A0], 0);
 
@@ -684,7 +674,7 @@ pub fn test_mop_jump_rel_version1_reg_not_updated_bug() {
         let ret_asm = machine_asm.run();
         assert_eq!(
             ret_asm,
-            Err(Error::MemOutOfBound(0x401054a, OutOfBoundKind::Memory))
+            Err(Error::MemOutOfBound)
         );
         assert_eq!(machine_asm.machine.registers()[A0], 67174520);
     }
@@ -701,7 +691,7 @@ pub fn test_mop_jump_abs_version1_reg_not_updated_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x40004d2, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(machine.registers()[A0], 67108864);
 
@@ -714,7 +704,7 @@ pub fn test_mop_jump_abs_version1_reg_not_updated_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x40004d2, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(machine.registers()[A0], 0);
 
@@ -727,7 +717,7 @@ pub fn test_mop_jump_abs_version1_reg_not_updated_bug() {
     let ret = machine.run();
     assert_eq!(
         ret,
-        Err(Error::MemOutOfBound(0x40004d2, OutOfBoundKind::Memory))
+        Err(Error::MemOutOfBound)
     );
     assert_eq!(machine.registers()[A0], 67108864);
 
@@ -742,7 +732,7 @@ pub fn test_mop_jump_abs_version1_reg_not_updated_bug() {
         let ret_asm = machine_asm.run();
         assert_eq!(
             ret_asm,
-            Err(Error::MemOutOfBound(0x40004d2, OutOfBoundKind::Memory))
+            Err(Error::MemOutOfBound)
         );
         assert_eq!(machine_asm.machine.registers()[A0], 0);
 
@@ -755,7 +745,7 @@ pub fn test_mop_jump_abs_version1_reg_not_updated_bug() {
         let ret_asm = machine_asm.run();
         assert_eq!(
             ret_asm,
-            Err(Error::MemOutOfBound(0x40004d2, OutOfBoundKind::Memory))
+            Err(Error::MemOutOfBound)
         );
         assert_eq!(machine_asm.machine.registers()[A0], 67108864);
     }
