@@ -9,14 +9,18 @@ fn main() {
     let target_family = env::var("CARGO_CFG_TARGET_FAMILY").unwrap_or_default();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    let target = env::var("TARGET").unwrap_or_default();
     let is_windows = target_family == "windows";
     let is_msvc = is_windows && (target_env == "msvc");
     let is_unix = target_family == "unix";
     let is_x86_64 = target_arch == "x86_64";
     let is_aarch64 = target_arch == "aarch64";
+    let is_riscv64 = target_arch == "riscv64";
     let x64_asm = is_x86_64 && (is_windows || is_unix);
     let aarch64_asm = is_aarch64 && is_unix;
-    let can_enable_asm = x64_asm || aarch64_asm;
+    // toolchain on sp1 has empty target_family
+    let riscv64_asm = is_riscv64 && (is_unix || target_family.is_empty());
+    let can_enable_asm = x64_asm || aarch64_asm || riscv64_asm;
 
     if cfg!(feature = "asm") && (!can_enable_asm) {
         panic!(
@@ -28,6 +32,7 @@ fn main() {
     if cfg!(any(feature = "asm", feature = "detect-asm")) && can_enable_asm {
         println!("cargo:rerun-if-changed=src/machine/asm/execute_x64.S");
         println!("cargo:rerun-if-changed=src/machine/asm/execute_aarch64.S");
+        println!("cargo:rerun-if-changed=src/machine/asm/execute_riscv64.S");
         println!("cargo:rerun-if-changed=src/machine/asm/cdefinitions_generated.h");
 
         let mut build = cc::Build::new();
@@ -44,6 +49,25 @@ fn main() {
             }
         } else if aarch64_asm {
             build.file("src/machine/asm/execute_aarch64.S");
+        } else if riscv64_asm {
+            if target.contains("zkvm") || target.contains("succinct") {
+                // use riscv64-unknown-elf-gcc for SP1's zkVM target
+                build.compiler("riscv64-unknown-elf-gcc");
+                build.flag("-march=rv64im");
+                // explicitly specify the ABI to avoid issues, even though it's the default value in GCC
+                build.flag("-mabi=lp64");
+            } else if target.contains("zero") {
+                let home = env::var("HOME").unwrap();
+                build.compiler(format!("{}/.zeroos/musl/bin/riscv64-linux-musl-gcc", home));
+                build.flag("-march=rv64imac");
+                build.flag("-mabi=lp64");
+            } else if target.contains("ckb") {
+                let home = env::var("HOME").unwrap();
+                build.compiler(format!("{}/.zeroos/musl/bin/riscv64-linux-musl-gcc", home));
+                build.flag("-march=rv64imac");
+                build.flag("-mabi=lp64");
+            }
+            build.file("src/machine/asm/execute_riscv64.S");
         }
 
         build.include("src/machine/asm").compile("asm");
