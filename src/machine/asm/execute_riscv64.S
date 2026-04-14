@@ -138,6 +138,116 @@
   POSTCALL; \
 3:
 
+# Unaligned-safe load/store macros: decompose multi-byte memory operations
+# into byte-level accesses to avoid alignment requirements in zkVMs.
+
+# Unaligned-safe 2-byte unsigned load: result in dest_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define LOAD16U_UNALIGNED(dest_reg, addr_reg, tmp1) \
+  lbu    dest_reg, 0(addr_reg); \
+  lbu    tmp1, 1(addr_reg); \
+  slli   tmp1, tmp1, 8; \
+  or     dest_reg, dest_reg, tmp1
+
+# Unaligned-safe 2-byte signed load: result in dest_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define LOAD16S_UNALIGNED(dest_reg, addr_reg, tmp1) \
+  lbu    dest_reg, 0(addr_reg); \
+  lb     tmp1, 1(addr_reg); \
+  slli   tmp1, tmp1, 8; \
+  or     dest_reg, dest_reg, tmp1
+
+# Unaligned-safe 4-byte unsigned load: result in dest_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define LOAD32U_UNALIGNED(dest_reg, addr_reg, tmp1) \
+  lbu    dest_reg, 0(addr_reg); \
+  lbu    tmp1, 1(addr_reg); \
+  slli   tmp1, tmp1, 8; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 2(addr_reg); \
+  slli   tmp1, tmp1, 16; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 3(addr_reg); \
+  slli   tmp1, tmp1, 24; \
+  or     dest_reg, dest_reg, tmp1
+
+# Unaligned-safe 4-byte signed load: result in dest_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define LOAD32S_UNALIGNED(dest_reg, addr_reg, tmp1) \
+  lbu    dest_reg, 0(addr_reg); \
+  lbu    tmp1, 1(addr_reg); \
+  slli   tmp1, tmp1, 8; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 2(addr_reg); \
+  slli   tmp1, tmp1, 16; \
+  or     dest_reg, dest_reg, tmp1; \
+  lb     tmp1, 3(addr_reg); \
+  slli   tmp1, tmp1, 24; \
+  or     dest_reg, dest_reg, tmp1
+
+# Unaligned-safe 8-byte load: result in dest_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define LOAD64_UNALIGNED(dest_reg, addr_reg, tmp1) \
+  lbu    dest_reg, 0(addr_reg); \
+  lbu    tmp1, 1(addr_reg); \
+  slli   tmp1, tmp1, 8; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 2(addr_reg); \
+  slli   tmp1, tmp1, 16; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 3(addr_reg); \
+  slli   tmp1, tmp1, 24; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 4(addr_reg); \
+  slli   tmp1, tmp1, 32; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 5(addr_reg); \
+  slli   tmp1, tmp1, 40; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 6(addr_reg); \
+  slli   tmp1, tmp1, 48; \
+  or     dest_reg, dest_reg, tmp1; \
+  lbu    tmp1, 7(addr_reg); \
+  slli   tmp1, tmp1, 56; \
+  or     dest_reg, dest_reg, tmp1
+
+# Unaligned-safe 2-byte store: value in val_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define STORE16_UNALIGNED(val_reg, addr_reg, tmp1) \
+  sb     val_reg, 0(addr_reg); \
+  srli   tmp1, val_reg, 8; \
+  sb     tmp1, 1(addr_reg)
+
+# Unaligned-safe 4-byte store: value in val_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define STORE32_UNALIGNED(val_reg, addr_reg, tmp1) \
+  sb     val_reg, 0(addr_reg); \
+  srli   tmp1, val_reg, 8; \
+  sb     tmp1, 1(addr_reg); \
+  srli   tmp1, val_reg, 16; \
+  sb     tmp1, 2(addr_reg); \
+  srli   tmp1, val_reg, 24; \
+  sb     tmp1, 3(addr_reg)
+
+# Unaligned-safe 8-byte store: value in val_reg, address in addr_reg
+# Uses tmp1 as scratch register
+#define STORE64_UNALIGNED(val_reg, addr_reg, tmp1) \
+  sb     val_reg, 0(addr_reg); \
+  srli   tmp1, val_reg, 8; \
+  sb     tmp1, 1(addr_reg); \
+  srli   tmp1, val_reg, 16; \
+  sb     tmp1, 2(addr_reg); \
+  srli   tmp1, val_reg, 24; \
+  sb     tmp1, 3(addr_reg); \
+  srli   tmp1, val_reg, 32; \
+  sb     tmp1, 4(addr_reg); \
+  srli   tmp1, val_reg, 40; \
+  sb     tmp1, 5(addr_reg); \
+  srli   tmp1, val_reg, 48; \
+  sb     tmp1, 6(addr_reg); \
+  srli   tmp1, val_reg, 56; \
+  sb     tmp1, 7(addr_reg)
+
 #define DECODE_I \
   andi   RS1, INST_HI32, 0xff; \
   srai   IMMEDIATE, INST_HI32, 8
@@ -509,7 +619,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION0(RS1, 8, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  ld     RS1, 0(t0)
+  LOAD64_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LD_VERSION1:
@@ -518,7 +628,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION1(RS1, 8, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  ld     RS1, 0(t0)
+  LOAD64_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LH_VERSION0:
@@ -527,7 +637,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION0(RS1, 2, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lh     RS1, 0(t0)
+  LOAD16S_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LH_VERSION1:
@@ -536,7 +646,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION1(RS1, 2, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lh     RS1, 0(t0)
+  LOAD16S_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LHU_VERSION0:
@@ -545,7 +655,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION0(RS1, 2, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lhu    RS1, 0(t0)
+  LOAD16U_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LHU_VERSION1:
@@ -554,7 +664,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION1(RS1, 2, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lhu    RS1, 0(t0)
+  LOAD16U_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LUI:
@@ -574,7 +684,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION0(RS1, 4, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lw     RS1, 0(t0)
+  LOAD32S_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LW_VERSION1:
@@ -583,7 +693,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION1(RS1, 4, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lw     RS1, 0(t0)
+  LOAD32S_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LWU_VERSION0:
@@ -592,7 +702,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION0(RS1, 4, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lwu    RS1, 0(t0)
+  LOAD32U_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_LWU_VERSION1:
@@ -601,7 +711,7 @@ ckb_vm_x64_execute:
   add    RS1, RS1, IMMEDIATE
   CHECK_READ_VERSION1(RS1, 4, t0, t1, t2)
   add    t0, MEMORY_ADDR, RS1
-  lwu    RS1, 0(t0)
+  LOAD32U_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_MUL:
@@ -696,7 +806,7 @@ ckb_vm_x64_execute:
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   LOAD_RS2(t0)
   add    t0, MEMORY_ADDR, RS1
-  sd     RS2, 0(t0)
+  STORE64_UNALIGNED(RS2, t0, t1)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_SH:
   DECODE_S
@@ -705,7 +815,7 @@ ckb_vm_x64_execute:
   CHECK_WRITE(RS1, 2, t0, t1, t2, t3)
   LOAD_RS2(t0)
   add    t0, MEMORY_ADDR, RS1
-  sh     RS2, 0(t0)
+  STORE16_UNALIGNED(RS2, t0, t1)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_SLL:
   DECODE_R
@@ -835,7 +945,7 @@ ckb_vm_x64_execute:
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   LOAD_RS2(t0)
   add    t0, MEMORY_ADDR, RS1
-  sw     RS2, 0(t0)
+  STORE32_UNALIGNED(RS2, t0, t1)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_XOR:
   DECODE_R
@@ -856,7 +966,7 @@ ckb_vm_x64_execute:
   CHECK_READ_VERSION1(RS1, 4, t0, t1, t2)
   sd     RS1, LOAD_RESERVATION_ADDRESS
   add    t0, MEMORY_ADDR, RS1
-  lw     RS1, 0(t0)
+  LOAD32S_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_SC_W:
@@ -870,7 +980,7 @@ ckb_vm_x64_execute:
   li     RS3, 1
   bne    RS1, t0, 1f
   add    t1, MEMORY_ADDR, RS1
-  sw     RS2, 0(t1)
+  STORE32_UNALIGNED(RS2, t1, t2)
   li     RS3, 0
 1:
   WRITE_RD(RS3, t0)
@@ -881,8 +991,8 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
-  sw     RS2, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
+  STORE32_UNALIGNED(RS2, t0, t2)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -892,9 +1002,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
   addw   t2, t1, RS2
-  sw     t2, 0(t0)
+  STORE32_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -904,9 +1014,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
   xor    t2, t1, RS2
-  sw     t2, 0(t0)
+  STORE32_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -916,9 +1026,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
   and    t2, t1, RS2
-  sw     t2, 0(t0)
+  STORE32_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -928,9 +1038,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
   or     t2, t1, RS2
-  sw     t2, 0(t0)
+  STORE32_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -940,13 +1050,13 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
   sext.w t2, t1
   sext.w t3, RS2
   blt    t2, t3, 1f
   mv     t1, RS2
 1:
-  sw     t1, 0(t0)
+  STORE32_UNALIGNED(t1, t0, t4)
   sext.w RS1, t2
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -956,13 +1066,13 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lw     t1, 0(t0)
+  LOAD32S_UNALIGNED(t1, t0, t2)
   sext.w t2, t1
   sext.w t3, RS2
   bge    t2, t3, 1f
   mv     t1, RS2
 1:
-  sw     t1, 0(t0)
+  STORE32_UNALIGNED(t1, t0, t4)
   sext.w RS1, t2
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -972,7 +1082,7 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lwu    t1, 0(t0)
+  LOAD32U_UNALIGNED(t1, t0, t4)
   slli   t2, t1, 32
   srli   t2, t2, 32
   slli   t3, RS2, 32
@@ -980,7 +1090,7 @@ ckb_vm_x64_execute:
   bltu   t2, t3, 1f
   mv     t1, RS2
 1:
-  sw     t1, 0(t0)
+  STORE32_UNALIGNED(t1, t0, t4)
   sext.w RS1, t2
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -990,7 +1100,7 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 4, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  lwu    t1, 0(t0)
+  LOAD32U_UNALIGNED(t1, t0, t4)
   slli   t2, t1, 32
   srli   t2, t2, 32
   slli   t3, RS2, 32
@@ -998,7 +1108,7 @@ ckb_vm_x64_execute:
   bgeu   t2, t3, 1f
   mv     t1, RS2
 1:
-  sw     t1, 0(t0)
+  STORE32_UNALIGNED(t1, t0, t4)
   sext.w RS1, t2
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1008,7 +1118,7 @@ ckb_vm_x64_execute:
   CHECK_READ_VERSION1(RS1, 8, t0, t1, t2)
   sd     RS1, LOAD_RESERVATION_ADDRESS
   add    t0, MEMORY_ADDR, RS1
-  ld     RS1, 0(t0)
+  LOAD64_UNALIGNED(RS1, t0, t1)
   WRITE_RD(RS1, t0)
   NEXT_INST
 .CKB_VM_ASM_LABEL_OP_SC_D:
@@ -1022,7 +1132,7 @@ ckb_vm_x64_execute:
   li     RS3, 1
   bne    RS1, t0, 1f
   add    t1, MEMORY_ADDR, RS1
-  sd     RS2, 0(t1)
+  STORE64_UNALIGNED(RS2, t1, t2)
   li     RS3, 0
 1:
   WRITE_RD(RS3, t0)
@@ -1033,8 +1143,8 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
-  sd     RS2, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
+  STORE64_UNALIGNED(RS2, t0, t2)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1044,9 +1154,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   add    t2, t1, RS2
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1056,9 +1166,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   xor    t2, t1, RS2
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1068,9 +1178,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   and    t2, t1, RS2
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1080,9 +1190,9 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   or     t2, t1, RS2
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1092,12 +1202,12 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   mv     t2, t1
   blt    t1, RS2, 1f
   mv     t2, RS2
 1:
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1107,12 +1217,12 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   mv     t2, t1
   bge    t1, RS2, 1f
   mv     t2, RS2
 1:
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1122,12 +1232,12 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   mv     t2, t1
   bltu   t1, RS2, 1f
   mv     t2, RS2
 1:
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
@@ -1137,12 +1247,12 @@ ckb_vm_x64_execute:
   LOAD_RS2(t0)
   CHECK_WRITE(RS1, 8, t0, t1, t2, t3)
   add    t0, MEMORY_ADDR, RS1
-  ld     t1, 0(t0)
+  LOAD64_UNALIGNED(t1, t0, t2)
   mv     t2, t1
   bgeu   t1, RS2, 1f
   mv     t2, RS2
 1:
-  sd     t2, 0(t0)
+  STORE64_UNALIGNED(t2, t0, t3)
   mv     RS1, t1
   WRITE_RD(RS1, t0)
   NEXT_INST
