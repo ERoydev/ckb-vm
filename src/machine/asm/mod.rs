@@ -12,14 +12,16 @@ use ckb_vm_definitions::{
         RET_PAUSE, RET_SLOWPATH,
     },
 };
-use std::alloc::{Layout, alloc, alloc_zeroed};
-use std::mem::MaybeUninit;
-use std::os::raw::c_uchar;
+use core::alloc::Layout;
+use alloc::alloc::{alloc, alloc_zeroed};
+use core::mem::MaybeUninit;
+use core::ffi::c_uchar;
+
+use crate::elf::ProgramMetadata;
 
 use crate::{
     CoreMachine, DefaultMachine, DefaultMachineRunner, Error, MEMORY_FRAME_SHIFTS, Machine, Memory,
     RISCV_PAGESIZE, SupportMachine,
-    elf::ProgramMetadata,
     error::OutOfBoundKind,
     instructions::execute_instruction,
     machine::{
@@ -563,7 +565,7 @@ where
         let slice = unsafe {
             let memory = self.as_ref().memory_ptr as *const u8;
             let memory_from = memory.add(addr as usize);
-            std::slice::from_raw_parts(memory_from, size as usize)
+            core::slice::from_raw_parts(memory_from, size as usize)
         };
         Ok(Bytes::from(slice))
     }
@@ -875,7 +877,7 @@ fn cast_ptr_to_slice<R>(_machine: &R, ptr: u64, offset: usize, size: usize) -> &
     unsafe {
         let ptr = ptr as *const u8;
         let ptr = ptr.add(offset);
-        std::slice::from_raw_parts(ptr, size)
+        core::slice::from_raw_parts(ptr, size)
     }
 }
 
@@ -884,7 +886,7 @@ fn cast_ptr_to_slice_mut<R>(_machine: &mut R, ptr: u64, offset: usize, size: usi
     unsafe {
         let ptr = ptr as *mut u8;
         let ptr = ptr.add(offset);
-        std::slice::from_raw_parts_mut(ptr, size)
+        core::slice::from_raw_parts_mut(ptr, size)
     }
 }
 

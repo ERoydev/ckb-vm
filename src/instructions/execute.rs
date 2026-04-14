@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use super::{
     super::{Error, machine::Machine},
     Instruction, InstructionOpcode, Itype, R4type, R5type, Register, Rtype, Stype, Utype, common,
@@ -1626,7 +1627,7 @@ impl<Mac: Machine> ThreadFactory<Mac> {
     }
 }
 
-impl<Mac: Machine> std::ops::Index<InstructionOpcode> for ThreadFactory<Mac> {
+impl<Mac: Machine> core::ops::Index<InstructionOpcode> for ThreadFactory<Mac> {
     type Output = Thread<Mac>;
 
     fn index(&self, opcode: InstructionOpcode) -> &Thread<Mac> {

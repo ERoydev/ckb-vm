@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use crate::instructions::Register;
 use crate::memory::FLAG_DIRTY;
 use crate::memory::Memory;

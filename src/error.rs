@@ -1,3 +1,5 @@
+use alloc::string::String;
+
 #[derive(Debug, PartialEq, Clone, Eq, Display)]
 pub enum Error {
     #[display("asm error: {_0}")]
@@ -28,6 +30,7 @@ pub enum Error {
     InvalidOp(u16),
     #[display("invalid version")]
     InvalidVersion,
+    #[cfg(feature = "std")]
     #[display("I/O error: {kind:?} {data}")]
     IO {
         kind: std::io::ErrorKind,
@@ -59,8 +62,10 @@ pub enum OutOfBoundKind {
     ExternalData,
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {}
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
         Error::IO {
@@ -69,6 +74,8 @@ impl From<std::io::Error> for Error {
         }
     }
 }
+
+use alloc::string::ToString;
 
 impl From<goblin_v023::error::Error> for Error {
     fn from(error: goblin_v023::error::Error) -> Self {

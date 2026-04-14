@@ -7,8 +7,10 @@ use crate::{
 };
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::cmp::min;
-use std::collections::HashMap;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::cmp::min;
+use alloc::collections::BTreeMap;
 
 const PAGE_SIZE: u64 = RISCV_PAGESIZE as u64;
 
@@ -30,7 +32,7 @@ pub trait DataSource<I: Clone + PartialEq> {
 #[derive(Clone, Debug)]
 pub struct Snapshot2Context<I: Clone + PartialEq, D: DataSource<I>> {
     // page index -> (id, offset, flag)
-    pages: HashMap<u64, (I, u64, u8)>,
+    pages: BTreeMap<u64, (I, u64, u8)>,
     data_source: D,
 }
 
@@ -43,7 +45,7 @@ impl<I: Clone + PartialEq, D: DataSource<I> + Default> Default for Snapshot2Cont
 impl<I: Clone + PartialEq, D: DataSource<I>> Snapshot2Context<I, D> {
     pub fn new(data_source: D) -> Self {
         Self {
-            pages: HashMap::default(),
+            pages: BTreeMap::default(),
             data_source,
         }
     }

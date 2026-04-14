@@ -1,7 +1,7 @@
 use crate::Register;
-use std::fmt::{self, Display};
-use std::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
-use std::rc::Rc;
+use core::fmt::{self, Display};
+use core::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
+use alloc::rc::Rc;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ActionOp1 {

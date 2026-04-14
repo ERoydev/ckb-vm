@@ -1,8 +1,9 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use super::{
     super::{
         Error,
         decoder::{DefaultDecoder, InstDecoder},
-        elf::ProgramMetadata,
         instructions::{
             Instruction, Register, Thread, ThreadFactory, execute_with_thread, extract_opcode,
             handle_invalid_op, instruction_length, is_basic_block_end_instruction,
@@ -10,6 +11,8 @@ use super::{
     },
     CoreMachine, DefaultMachine, DefaultMachineRunner, Machine, SupportMachine, VERSION2,
 };
+
+use crate::elf::ProgramMetadata;
 use bytes::Bytes;
 
 // The number of trace items to keep

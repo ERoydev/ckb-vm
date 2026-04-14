@@ -1,9 +1,11 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
 use super::{FLAG_DIRTY, Memory, Page, check_no_overflow, fill_page_data, memset, round_page_down};
 
 use bytes::Bytes;
-use std::cmp::min;
-use std::marker::PhantomData;
+use core::cmp::min;
+use core::marker::PhantomData;
 
 const INVALID_PAGE_INDEX: u16 = 0xFFFF;
 

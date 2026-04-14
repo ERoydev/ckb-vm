@@ -1,3 +1,5 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use ckb_vm_definitions::instructions::{self as insts};
 use ckb_vm_definitions::registers::{RA, ZERO};
 

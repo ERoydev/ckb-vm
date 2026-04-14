@@ -5,7 +5,10 @@ use crate::memory::{FLAG_EXECUTABLE, FLAG_FREEZED, round_page_down, round_page_u
 use crate::{Error, Register};
 use bytes::Bytes;
 use scroll::Pread;
-use std::ops::Range;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::ops::Range;
 
 // Even for different versions of goblin, their values must be consistent.
 pub use goblin_v023::elf::program_header::{PF_R, PF_W, PF_X, PT_LOAD};

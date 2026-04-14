@@ -2,10 +2,14 @@
 pub mod asm;
 pub mod trace;
 
-use std::fmt::{self, Display};
-use std::marker::PhantomData;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt::{self, Display};
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use bytes::Bytes;
 
@@ -120,16 +124,6 @@ pub trait SupportMachine: CoreMachine {
     }
 
     fn load_elf(&mut self, program: &Bytes, update_pc: bool) -> Result<u64, Error> {
-        // Allows to override load_elf by writing the real function body in load_elf_inner.
-        //
-        // impl SupportMachine for Somebody {
-        //     fn load_elf(&mut self, program: &Bytes, update_pc: bool) -> Result<u64, Error> {
-        //         // Do something before load_elf
-        //         let r = self.load_elf_inner(program, update_pc);
-        //         // Do something after
-        //         return r;
-        //     }
-        // }
         self.load_elf_inner(program, update_pc)
     }
 
@@ -179,7 +173,6 @@ pub trait SupportMachine: CoreMachine {
         metadata: &ProgramMetadata,
         update_pc: bool,
     ) -> Result<u64, Error> {
-        // Similar to load_elf, this provides a way to adjust the behavior of load_binary_inner
         self.load_binary_inner(program, metadata, update_pc)
     }
 

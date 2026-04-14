@@ -4,8 +4,9 @@ use super::{
     error::OutOfBoundKind,
 };
 use bytes::Bytes;
-use std::cmp::min;
-use std::ptr;
+use alloc::vec::Vec;
+use core::cmp::min;
+use core::ptr;
 
 pub mod flat;
 pub mod sparse;

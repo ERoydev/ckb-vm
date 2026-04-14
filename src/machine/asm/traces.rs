@@ -18,8 +18,12 @@ use crate::{
     },
     memory::Memory,
 };
-use std::alloc::{Layout, alloc, alloc_zeroed};
-use std::collections::HashMap;
+use alloc::alloc::{alloc, alloc_zeroed};
+use alloc::boxed::Box;
+use alloc::collections::BTreeMap;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::alloc::Layout;
 
 pub trait TraceDecoder: InstDecoder {
     fn fixed_traces(&self) -> *const FixedTrace;
@@ -53,7 +57,7 @@ pub fn decode_fixed_trace<D: InstDecoder, F: InstDecoder, R: AsmCoreMachineRevea
     let mut i = 0;
 
     let size = match maximum_insts {
-        Some(items) => std::cmp::min(items, TRACE_ITEM_LENGTH),
+        Some(items) => core::cmp::min(items, TRACE_ITEM_LENGTH),
         None => TRACE_ITEM_LENGTH,
     };
     while i < size {
@@ -144,7 +148,7 @@ impl<D: InstDecoder> InstDecoder for SimpleFixedTraceDecoder<D> {
 /// A fixed trace decoder that memorizes all traces after the initial decoding
 pub struct MemoizedFixedTraceDecoder<D: InstDecoder> {
     inner: SimpleFixedTraceDecoder<D>,
-    cache: HashMap<u64, FixedTrace>,
+    cache: BTreeMap<u64, FixedTrace>,
 }
 
 impl<D: InstDecoder> MemoizedFixedTraceDecoder<D> {
@@ -190,7 +194,7 @@ impl<D: InstDecoder> InstDecoder for MemoizedFixedTraceDecoder<D> {
     fn new<R: Register>(isa: u8, version: u32) -> Self {
         Self {
             inner: SimpleFixedTraceDecoder::new::<R>(isa, version),
-            cache: HashMap::default(),
+            cache: BTreeMap::default(),
         }
     }
 
@@ -260,7 +264,7 @@ impl DynamicTraceBuilder {
             blank_instruction(OP_CUSTOM_TRACE_END),
             label_from_fastpath_opcode(OP_CUSTOM_TRACE_END),
         ));
-        let fixed_size = std::mem::size_of::<DynamicTrace>();
+        let fixed_size = core::mem::size_of::<DynamicTrace>();
         let total_size = fixed_size + self.insts.len() * 16;
         let p = unsafe {
             let layout = Layout::array::<u8>(total_size).unwrap();
@@ -285,8 +289,8 @@ impl DynamicTraceBuilder {
 /// sequential code.
 pub struct MemoizedDynamicTraceDecoder<D: InstDecoder> {
     inner: SimpleFixedTraceDecoder<D>,
-    fixed_cache: HashMap<u64, FixedTrace>,
-    dynamic_cache: HashMap<u64, Box<DynamicTrace>>,
+    fixed_cache: BTreeMap<u64, FixedTrace>,
+    dynamic_cache: BTreeMap<u64, Box<DynamicTrace>>,
 }
 
 impl<D: InstDecoder> MemoizedDynamicTraceDecoder<D> {
@@ -373,8 +377,8 @@ impl<D: InstDecoder> InstDecoder for MemoizedDynamicTraceDecoder<D> {
     fn new<R: Register>(isa: u8, version: u32) -> Self {
         Self {
             inner: SimpleFixedTraceDecoder::new::<R>(isa, version),
-            fixed_cache: HashMap::default(),
-            dynamic_cache: HashMap::default(),
+            fixed_cache: BTreeMap::default(),
+            dynamic_cache: BTreeMap::default(),
         }
     }
 

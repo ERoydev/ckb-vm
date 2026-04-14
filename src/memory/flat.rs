@@ -1,11 +1,12 @@
+use alloc::vec;
+use alloc::vec::Vec;
 use super::super::{Error, RISCV_PAGE_SHIFTS, RISCV_PAGESIZE, Register, error::OutOfBoundKind};
 use super::{Memory, check_no_overflow, fill_page_data, get_page_indices, memset, set_dirty};
 
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{ByteOrder, LittleEndian};
 use bytes::Bytes;
-use std::io::{Cursor, Seek, SeekFrom};
-use std::marker::PhantomData;
-use std::ops::{Deref, DerefMut};
+use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 
 pub struct FlatMemory<R> {
     data: Vec<u8>,
@@ -106,85 +107,65 @@ impl<R: Register> Memory for FlatMemory<R> {
     }
 
     fn load8(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 1, self.memory_size as u64)?;
-        let mut reader = Cursor::new(&self.data);
-        reader.seek(SeekFrom::Start(addr as u64))?;
-        let v = reader.read_u8()?;
-        Ok(Self::REG::from_u8(v))
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 1, self.memory_size as u64)?;
+        Ok(Self::REG::from_u8(self.data[addr]))
     }
 
     fn load16(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 2, self.memory_size as u64)?;
-        let mut reader = Cursor::new(&self.data);
-        reader.seek(SeekFrom::Start(addr as u64))?;
-        // NOTE: Base RISC-V ISA is defined as a little-endian memory system.
-        let v = reader.read_u16::<LittleEndian>()?;
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 2, self.memory_size as u64)?;
+        let v = LittleEndian::read_u16(&self.data[addr..addr + 2]);
         Ok(Self::REG::from_u16(v))
     }
 
     fn load32(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 4, self.memory_size as u64)?;
-        let mut reader = Cursor::new(&self.data);
-        reader.seek(SeekFrom::Start(addr as u64))?;
-        // NOTE: Base RISC-V ISA is defined as a little-endian memory system.
-        let v = reader.read_u32::<LittleEndian>()?;
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 4, self.memory_size as u64)?;
+        let v = LittleEndian::read_u32(&self.data[addr..addr + 4]);
         Ok(Self::REG::from_u32(v))
     }
 
     fn load64(&mut self, addr: &Self::REG) -> Result<Self::REG, Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 8, self.memory_size as u64)?;
-        let mut reader = Cursor::new(&self.data);
-        reader.seek(SeekFrom::Start(addr as u64))?;
-        // NOTE: Base RISC-V ISA is defined as a little-endian memory system.
-        let v = reader.read_u64::<LittleEndian>()?;
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 8, self.memory_size as u64)?;
+        let v = LittleEndian::read_u64(&self.data[addr..addr + 8]);
         Ok(Self::REG::from_u64(v))
     }
 
     fn store8(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 1, self.memory_size as u64)?;
-        let page_indices = get_page_indices(addr, 1);
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 1, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr as u64, 1);
         set_dirty(self, &page_indices)?;
-        let mut writer = Cursor::new(&mut self.data);
-        writer.seek(SeekFrom::Start(addr as u64))?;
-        writer.write_u8(value.to_u8())?;
+        self.data[addr] = value.to_u8();
         Ok(())
     }
 
     fn store16(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 2, self.memory_size as u64)?;
-        let page_indices = get_page_indices(addr, 2);
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 2, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr as u64, 2);
         set_dirty(self, &page_indices)?;
-        let mut writer = Cursor::new(&mut self.data);
-        writer.seek(SeekFrom::Start(addr as u64))?;
-        writer.write_u16::<LittleEndian>(value.to_u16())?;
+        LittleEndian::write_u16(&mut self.data[addr..addr + 2], value.to_u16());
         Ok(())
     }
 
     fn store32(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 4, self.memory_size as u64)?;
-        let page_indices = get_page_indices(addr, 4);
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 4, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr as u64, 4);
         set_dirty(self, &page_indices)?;
-        let mut writer = Cursor::new(&mut self.data);
-        writer.seek(SeekFrom::Start(addr as u64))?;
-        writer.write_u32::<LittleEndian>(value.to_u32())?;
+        LittleEndian::write_u32(&mut self.data[addr..addr + 4], value.to_u32());
         Ok(())
     }
 
     fn store64(&mut self, addr: &Self::REG, value: &Self::REG) -> Result<(), Error> {
-        let addr = addr.to_u64();
-        check_no_overflow(addr, 8, self.memory_size as u64)?;
-        let page_indices = get_page_indices(addr, 8);
+        let addr = addr.to_u64() as usize;
+        check_no_overflow(addr as u64, 8, self.memory_size as u64)?;
+        let page_indices = get_page_indices(addr as u64, 8);
         set_dirty(self, &page_indices)?;
-        let mut writer = Cursor::new(&mut self.data);
-        writer.seek(SeekFrom::Start(addr as u64))?;
-        writer.write_u64::<LittleEndian>(value.to_u64())?;
+        LittleEndian::write_u64(&mut self.data[addr..addr + 8], value.to_u64());
         Ok(())
     }
 
