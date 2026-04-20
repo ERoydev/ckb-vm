@@ -1,5 +1,6 @@
 pub mod traces;
 
+use alloc::alloc::{alloc, alloc_zeroed};
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::Bytes;
 pub use ckb_vm_definitions::asm::AsmCoreMachine;
@@ -13,9 +14,8 @@ use ckb_vm_definitions::{
     },
 };
 use core::alloc::Layout;
-use alloc::alloc::{alloc, alloc_zeroed};
-use core::mem::MaybeUninit;
 use core::ffi::c_uchar;
+use core::mem::MaybeUninit;
 
 use crate::elf::ProgramMetadata;
 
