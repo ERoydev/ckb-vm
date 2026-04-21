@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use core::cmp::min;
 use core::ptr;
 
+pub mod debug_unaligned;
 pub mod flat;
 pub mod sparse;
 pub mod wxorx;

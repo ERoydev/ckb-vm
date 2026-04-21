@@ -121,6 +121,7 @@ pub fn lh<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     check_load_boundary(version0, &address, 2, machine.memory().memory_size() as u64)?;
+    crate::memory::debug_unaligned::check_load(2, address.to_u64(), machine.pc().to_u64());
     let value = machine.memory_mut().load16(&address)?;
     // sign-extened
     update_register(machine, rd, value.sign_extend(&Mac::REG::from_u8(16)));
@@ -136,6 +137,7 @@ pub fn lw<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     check_load_boundary(version0, &address, 4, machine.memory().memory_size() as u64)?;
+    crate::memory::debug_unaligned::check_load(4, address.to_u64(), machine.pc().to_u64());
     let value = machine.memory_mut().load32(&address)?;
     update_register(machine, rd, value.sign_extend(&Mac::REG::from_u8(32)));
     Ok(())
@@ -150,6 +152,7 @@ pub fn ld<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     check_load_boundary(version0, &address, 8, machine.memory().memory_size() as u64)?;
+    crate::memory::debug_unaligned::check_load(8, address.to_u64(), machine.pc().to_u64());
     let value = machine.memory_mut().load64(&address)?;
     update_register(machine, rd, value.sign_extend(&Mac::REG::from_u8(64)));
     Ok(())
@@ -178,6 +181,7 @@ pub fn lhu<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     check_load_boundary(version0, &address, 2, machine.memory().memory_size() as u64)?;
+    crate::memory::debug_unaligned::check_load(2, address.to_u64(), machine.pc().to_u64());
     let value = machine.memory_mut().load16(&address)?;
     update_register(machine, rd, value);
     Ok(())
@@ -192,6 +196,7 @@ pub fn lwu<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     check_load_boundary(version0, &address, 4, machine.memory().memory_size() as u64)?;
+    crate::memory::debug_unaligned::check_load(4, address.to_u64(), machine.pc().to_u64());
     let value = machine.memory_mut().load32(&address)?;
     update_register(machine, rd, value);
     Ok(())
@@ -220,6 +225,7 @@ pub fn sh<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     let value = machine.registers()[rs2 as usize].clone();
+    crate::memory::debug_unaligned::check_store(2, address.to_u64(), machine.pc().to_u64());
     machine.memory_mut().store16(&address, &value)?;
     Ok(())
 }
@@ -232,6 +238,7 @@ pub fn sw<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     let value = machine.registers()[rs2 as usize].clone();
+    crate::memory::debug_unaligned::check_store(4, address.to_u64(), machine.pc().to_u64());
     machine.memory_mut().store32(&address, &value)?;
     Ok(())
 }
@@ -244,6 +251,7 @@ pub fn sd<Mac: Machine>(
 ) -> Result<(), Error> {
     let address = machine.registers()[rs1 as usize].overflowing_add(&Mac::REG::from_i32(imm));
     let value = machine.registers()[rs2 as usize].clone();
+    crate::memory::debug_unaligned::check_store(8, address.to_u64(), machine.pc().to_u64());
     machine.memory_mut().store64(&address, &value)?;
     Ok(())
 }
